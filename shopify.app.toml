@@ -1,0 +1,34 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "f1a5827b7d612c239b5d6e2c8c110d44"
+name = "RankInAi"
+application_url = "https://rankinai.app"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2025-10"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_locales,write_locales,read_online_store_pages,write_online_store_pages,read_product_listings,write_product_listings,read_products,write_products,read_script_tags,read_content,write_content,read_themes"
+optional_scopes = [ "read_metaobjects", "write_metaobjects" ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://localhost:3000/auth/callback",
+  "http://localhost:3000/auth/callback",
+  "https://votre-ngrok-url.ngrok.io/auth/callback"
+]
