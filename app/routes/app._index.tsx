@@ -3,13 +3,16 @@ import {
   AppProvider,
   Page,
   Layout,
-  Card,
+  LegacyCard,
   Text,
   Badge,
   Button,
   ProgressBar,
   Banner,
-  BlockStack
+  BlockStack,
+  InlineGrid,
+  Box,
+  Divider
 } from "@shopify/polaris";
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { authenticate } from "../shopify.server";
@@ -60,8 +63,9 @@ export default function Dashboard() {
   return (
     <AppProvider i18n={enTranslations}>
       <Page
-        title="Tableau de bord RankInAI"
-        titleMetadata={<Badge tone="attention">Plan {data.shop.plan}</Badge>}
+        title="Tableau de bord"
+        subtitle="RankInAI - Optimisation pour ChatGPT et Gemini"
+        compactTitle
         primaryAction={{
           content: "Scanner un produit",
           onAction: () => navigate("/app/products")
@@ -75,173 +79,201 @@ export default function Dashboard() {
         ]}
       >
         <Layout>
-          {/* Bannière de bienvenue si pas de produits */}
+          {/* Statut du plan */}
+          <Layout.Section>
+            <Box paddingBlockEnd="400">
+              <InlineGrid columns="1fr auto" gap="400" alignItems="center">
+                <Text variant="bodyMd" as="p">
+                  Bienvenue dans votre espace RankInAI
+                </Text>
+                <Badge tone="attention">Plan {data.shop.plan}</Badge>
+              </InlineGrid>
+            </Box>
+          </Layout.Section>
+
+          {/* Bannière d'information si pas de produits */}
           {data.stats.totalProducts === 0 && (
             <Layout.Section>
               <Banner
-                title="Bienvenue sur RankInAI ! 🎉"
+                title="Première utilisation"
                 tone="info"
-                onDismiss={() => {}}
               >
                 <p>
-                  Optimisez vos produits pour être cités par ChatGPT et Gemini.
-                  Commencez par ajouter des produits à votre boutique Shopify.
+                  Pour commencer, ajoutez des produits dans votre boutique Shopify. 
+                  Ils seront automatiquement synchronisés avec RankInAI.
                 </p>
               </Banner>
             </Layout.Section>
           )}
 
-          {/* Les 3 cartes métriques principales */}
+          {/* Métriques principales */}
           <Layout.Section>
-            <Layout>
+            <InlineGrid columns={{xs: 1, sm: 2, md: 3}} gap="400">
               {/* Carte Crédits */}
-              <Layout.Section oneThird>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text variant="headingMd" as="h3">
-                      ✨ Crédits disponibles
+              <LegacyCard>
+                <Box padding="400">
+                  <BlockStack gap="300">
+                    <Text variant="headingSm" as="h3" tone="subdued">
+                      Crédits disponibles
                     </Text>
-                    <Text variant="heading2xl" as="p">
+                    <Text variant="heading3xl" as="p">
                       {data.shop.credits}
                       <Text as="span" variant="headingMd" tone="subdued">
-                        /{data.shop.maxCredits}
+                        {" "}sur {data.shop.maxCredits}
                       </Text>
                     </Text>
-                    <ProgressBar 
-                      progress={100 - creditsPercentage} 
-                      tone="primary"
-                      size="small"
-                    />
+                    <Box paddingBlockStart="200">
+                      <ProgressBar 
+                        progress={100 - creditsPercentage} 
+                        tone="primary"
+                        size="small"
+                      />
+                    </Box>
                     <Text variant="bodySm" tone="subdued">
-                      {creditsUsed} crédits utilisés ce mois
+                      {creditsUsed} utilisés ce mois
                     </Text>
-                    {data.shop.credits < 20 && (
+                  </BlockStack>
+                </Box>
+                {data.shop.credits < 20 && (
+                  <>
+                    <Divider />
+                    <Box padding="400">
                       <Button 
-                        size="slim" 
-                        tone="critical"
                         fullWidth
                         onClick={() => navigate("/app/pricing")}
                       >
-                        Recharger
+                        Recharger les crédits
                       </Button>
-                    )}
-                  </BlockStack>
-                </Card>
-              </Layout.Section>
+                    </Box>
+                  </>
+                )}
+              </LegacyCard>
 
               {/* Carte Citation Rate */}
-              <Layout.Section oneThird>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text variant="headingMd" as="h3">
-                      📊 Citation Rate moyen
+              <LegacyCard>
+                <Box padding="400">
+                  <BlockStack gap="300">
+                    <Text variant="headingSm" as="h3" tone="subdued">
+                      Citation Rate moyen
                     </Text>
-                    <Text variant="heading2xl" as="p">
+                    <Text variant="heading3xl" as="p">
                       {data.stats.averageCitationRate > 0 
                         ? `${data.stats.averageCitationRate}%`
                         : "—"
                       }
                     </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      {data.stats.analyzedProducts > 0 
-                        ? `Sur ${data.stats.analyzedProducts} produits`
-                        : "Lancez votre premier scan"
-                      }
-                    </Text>
-                    {data.stats.averageCitationRate === 0 && (
+                    <Box paddingBlockStart="200">
+                      <Text variant="bodySm" tone="subdued">
+                        {data.stats.analyzedProducts > 0 
+                          ? `Basé sur ${data.stats.analyzedProducts} produits`
+                          : "Aucune analyse disponible"
+                        }
+                      </Text>
+                    </Box>
+                  </BlockStack>
+                </Box>
+                {data.stats.averageCitationRate === 0 && (
+                  <>
+                    <Divider />
+                    <Box padding="400">
                       <Button 
-                        size="slim" 
                         fullWidth
                         onClick={() => navigate("/app/products")}
                       >
-                        Commencer
+                        Lancer une analyse
                       </Button>
-                    )}
-                  </BlockStack>
-                </Card>
-              </Layout.Section>
+                    </Box>
+                  </>
+                )}
+              </LegacyCard>
 
               {/* Carte Produits */}
-              <Layout.Section oneThird>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text variant="headingMd" as="h3">
-                      📦 Produits analysés
+              <LegacyCard>
+                <Box padding="400">
+                  <BlockStack gap="300">
+                    <Text variant="headingSm" as="h3" tone="subdued">
+                      Produits analysés
                     </Text>
-                    <Text variant="heading2xl" as="p">
+                    <Text variant="heading3xl" as="p">
                       {data.stats.analyzedProducts}
                       <Text as="span" variant="headingMd" tone="subdued">
-                        /{data.stats.totalProducts}
+                        {" "}sur {data.stats.totalProducts}
                       </Text>
                     </Text>
                     {data.stats.totalProducts > 0 && (
-                      <ProgressBar 
-                        progress={(data.stats.analyzedProducts / data.stats.totalProducts) * 100} 
-                        tone="success"
-                        size="small"
-                      />
+                      <Box paddingBlockStart="200">
+                        <ProgressBar 
+                          progress={(data.stats.analyzedProducts / data.stats.totalProducts) * 100} 
+                          tone="success"
+                          size="small"
+                        />
+                      </Box>
                     )}
-                    <Button 
-                      size="slim" 
-                      fullWidth
-                      onClick={() => navigate("/app/products")}
-                    >
-                      Voir les produits
-                    </Button>
                   </BlockStack>
-                </Card>
-              </Layout.Section>
-            </Layout>
+                </Box>
+                <Divider />
+                <Box padding="400">
+                  <Button 
+                    fullWidth
+                    onClick={() => navigate("/app/products")}
+                  >
+                    Gérer les produits
+                  </Button>
+                </Box>
+              </LegacyCard>
+            </InlineGrid>
           </Layout.Section>
 
-          {/* Section Conseils pour bien démarrer */}
+          {/* Guide de démarrage */}
           <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <Text variant="headingMd" as="h3">
-                  💡 Conseils pour bien démarrer
-                </Text>
-                
-                <BlockStack gap="300">
-                  <BlockStack gap="100">
-                    <Text variant="bodyMd">
-                      <strong>✅ 1. Ajoutez vos produits</strong>
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Créez des produits dans votre admin Shopify, ils apparaîtront automatiquement ici.
-                    </Text>
-                  </BlockStack>
+            <LegacyCard title="Guide de démarrage rapide">
+              <Box padding="400">
+                <BlockStack gap="400">
+                  <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+                    <BlockStack gap="200">
+                      <Text variant="headingMd" as="h4">
+                        1. Synchronisation
+                      </Text>
+                      <Text variant="bodyMd" tone="subdued">
+                        Vos produits Shopify sont automatiquement importés dans RankInAI.
+                      </Text>
+                    </BlockStack>
+                    
+                    <BlockStack gap="200">
+                      <Text variant="headingMd" as="h4">
+                        2. Analyse IA
+                      </Text>
+                      <Text variant="bodyMd" tone="subdued">
+                        Testez la visibilité de vos produits sur ChatGPT et Gemini.
+                      </Text>
+                    </BlockStack>
+                    
+                    <BlockStack gap="200">
+                      <Text variant="headingMd" as="h4">
+                        3. Optimisation
+                      </Text>
+                      <Text variant="bodyMd" tone="subdued">
+                        Appliquez les recommandations pour améliorer votre citation rate.
+                      </Text>
+                    </BlockStack>
+                  </InlineGrid>
 
-                  <BlockStack gap="100">
-                    <Text variant="bodyMd">
-                      <strong>🔍 2. Lancez votre premier scan</strong>
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Testez si vos produits sont cités par ChatGPT et Gemini (coût : 3 crédits).
-                    </Text>
-                  </BlockStack>
-
-                  <BlockStack gap="100">
-                    <Text variant="bodyMd">
-                      <strong>🚀 3. Appliquez les optimisations</strong>
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Suivez les recommandations IA pour améliorer votre citation rate.
-                    </Text>
-                  </BlockStack>
+                  {data.stats.totalProducts === 0 && (
+                    <>
+                      <Divider />
+                      <Box paddingBlockStart="200">
+                        <Button
+                          primary
+                          onClick={() => window.open(`https://admin.shopify.com/store/${data.shop.name}/products/new`, '_blank')}
+                        >
+                          Créer mon premier produit dans Shopify
+                        </Button>
+                      </Box>
+                    </>
+                  )}
                 </BlockStack>
-
-                {/* Bouton d'action si pas de produits */}
-                {data.stats.totalProducts === 0 && (
-                  <Button
-                    primary
-                    onClick={() => window.open(`https://admin.shopify.com/store/${data.shop.name}/products/new`, '_blank')}
-                  >
-                    Ajouter mon premier produit dans Shopify
-                  </Button>
-                )}
-              </BlockStack>
-            </Card>
+              </Box>
+            </LegacyCard>
           </Layout.Section>
         </Layout>
       </Page>
