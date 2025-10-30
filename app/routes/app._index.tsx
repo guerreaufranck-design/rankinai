@@ -12,12 +12,11 @@ import {
   Banner
 } from "@shopify/polaris";
 import {
-  TrendingUpIcon,
   SearchIcon,
-  StarIcon,
+  StarFilledIcon,
   PackageIcon,
-  SparklesIcon,
-  RefreshCwIcon
+  RefreshIcon,
+  ArrowUpIcon
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import { useState } from "react";
@@ -90,7 +89,7 @@ export default function Dashboard() {
       secondaryActions={[
         {
           content: "Actualiser",
-          icon: RefreshCwIcon,
+          icon: RefreshIcon,
           onAction: handleRefresh,
           loading: isRefreshing
         }
@@ -144,7 +143,7 @@ export default function Dashboard() {
                     borderRadius: '50%', 
                     padding: '0.75rem'
                   }}>
-                    <Icon source={SparklesIcon} tone="base" />
+                    <Icon source={StarFilledIcon} tone="base" />
                   </div>
                 </div>
                 <div style={{ marginTop: '1rem' }}>
@@ -182,7 +181,7 @@ export default function Dashboard() {
                     borderRadius: '50%', 
                     padding: '0.75rem'
                   }}>
-                    <Icon source={StarIcon} tone="base" />
+                    <Icon source={StarFilledIcon} tone="base" />
                   </div>
                 </div>
                 <Text as="p" variant="bodySm" style={{ color: 'rgba(255,255,255,0.8)', marginTop: '1rem' }}>
@@ -266,7 +265,7 @@ export default function Dashboard() {
                   gap: '0.75rem',
                   alignItems: 'flex-start'
                 }}>
-                  <Icon source={TrendingUpIcon} tone="positive" />
+                  <Icon source={ArrowUpIcon} tone="positive" />
                   <div>
                     <Text as="p" variant="bodySm" fontWeight="semibold">
                       Conseil d'optimisation
