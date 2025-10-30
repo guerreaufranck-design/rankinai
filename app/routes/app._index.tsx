@@ -8,7 +8,6 @@ import {
   Badge,
   Button,
   ProgressBar,
-  EmptyState,
   Banner,
   BlockStack
 } from "@shopify/polaris";
@@ -76,7 +75,7 @@ export default function Dashboard() {
         ]}
       >
         <Layout>
-          {/* Bannière de bienvenue */}
+          {/* Bannière de bienvenue si pas de produits */}
           {data.stats.totalProducts === 0 && (
             <Layout.Section>
               <Banner
@@ -92,9 +91,10 @@ export default function Dashboard() {
             </Layout.Section>
           )}
 
-          {/* Cartes métriques */}
+          {/* Les 3 cartes métriques principales */}
           <Layout.Section>
             <Layout>
+              {/* Carte Crédits */}
               <Layout.Section oneThird>
                 <Card>
                   <BlockStack gap="200">
@@ -129,6 +129,7 @@ export default function Dashboard() {
                 </Card>
               </Layout.Section>
 
+              {/* Carte Citation Rate */}
               <Layout.Section oneThird>
                 <Card>
                   <BlockStack gap="200">
@@ -160,6 +161,7 @@ export default function Dashboard() {
                 </Card>
               </Layout.Section>
 
+              {/* Carte Produits */}
               <Layout.Section oneThird>
                 <Card>
                   <BlockStack gap="200">
@@ -192,29 +194,7 @@ export default function Dashboard() {
             </Layout>
           </Layout.Section>
 
-          {/* État vide */}
-          {data.stats.totalProducts === 0 && (
-            <Layout.Section>
-              <Card>
-                <EmptyState
-                  heading="Commencez à optimiser vos produits"
-                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                  action={{
-                    content: "Ajouter des produits dans Shopify",
-                    onAction: () => window.open(`https://admin.shopify.com/store/${data.shop.name}/products/new`, '_blank'),
-                    external: true
-                  }}
-                >
-                  <p>
-                    Ajoutez des produits à votre boutique Shopify. 
-                    Ils seront automatiquement synchronisés avec RankInAI.
-                  </p>
-                </EmptyState>
-              </Card>
-            </Layout.Section>
-          )}
-
-          {/* Conseils */}
+          {/* Section Conseils pour bien démarrer */}
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
@@ -222,28 +202,44 @@ export default function Dashboard() {
                   💡 Conseils pour bien démarrer
                 </Text>
                 
-                <BlockStack gap="200">
-                  <Text variant="bodyMd">
-                    <strong>✅ 1. Ajoutez vos produits</strong>
-                  </Text>
-                  <Text variant="bodySm" tone="subdued">
-                    Créez des produits dans votre admin Shopify, ils apparaîtront automatiquement ici.
-                  </Text>
+                <BlockStack gap="300">
+                  <BlockStack gap="100">
+                    <Text variant="bodyMd">
+                      <strong>✅ 1. Ajoutez vos produits</strong>
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      Créez des produits dans votre admin Shopify, ils apparaîtront automatiquement ici.
+                    </Text>
+                  </BlockStack>
 
-                  <Text variant="bodyMd">
-                    <strong>🔍 2. Lancez votre premier scan</strong>
-                  </Text>
-                  <Text variant="bodySm" tone="subdued">
-                    Testez si vos produits sont cités par ChatGPT et Gemini (coût : 3 crédits).
-                  </Text>
+                  <BlockStack gap="100">
+                    <Text variant="bodyMd">
+                      <strong>🔍 2. Lancez votre premier scan</strong>
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      Testez si vos produits sont cités par ChatGPT et Gemini (coût : 3 crédits).
+                    </Text>
+                  </BlockStack>
 
-                  <Text variant="bodyMd">
-                    <strong>🚀 3. Appliquez les optimisations</strong>
-                  </Text>
-                  <Text variant="bodySm" tone="subdued">
-                    Suivez les recommandations IA pour améliorer votre citation rate.
-                  </Text>
+                  <BlockStack gap="100">
+                    <Text variant="bodyMd">
+                      <strong>🚀 3. Appliquez les optimisations</strong>
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      Suivez les recommandations IA pour améliorer votre citation rate.
+                    </Text>
+                  </BlockStack>
                 </BlockStack>
+
+                {/* Bouton d'action si pas de produits */}
+                {data.stats.totalProducts === 0 && (
+                  <Button
+                    primary
+                    onClick={() => window.open(`https://admin.shopify.com/store/${data.shop.name}/products/new`, '_blank')}
+                  >
+                    Ajouter mon premier produit dans Shopify
+                  </Button>
+                )}
               </BlockStack>
             </Card>
           </Layout.Section>
