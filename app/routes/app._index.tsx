@@ -1,8 +1,5 @@
-// app/routes/app._index.tsx
-// REMPLACE TOUT LE CONTENU PAR CECI :
-
-import { json } from "@remix-run/node";
-import { useLoaderData, useNavigate } from "@remix-run/react";
+import { json } from "@react-router/node";
+import { useLoaderData, useNavigate } from "react-router";
 import {
   Page,
   Layout,
@@ -11,12 +8,8 @@ import {
   Badge,
   Button,
   Icon,
-  Avatar,
   ProgressBar,
   EmptyState,
-  Thumbnail,
-  ButtonGroup,
-  Tooltip,
   Banner
 } from "@shopify/polaris";
 import {
@@ -31,23 +24,7 @@ import {
   RefreshCwIcon
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
-import { useState, useEffect } from "react";
-import {
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell
-} from "recharts";
+import { useState } from "react";
 
 // Données mockées pour le développement
 const MOCK_DATA = {
@@ -63,28 +40,12 @@ const MOCK_DATA = {
     averageCitationRate: 0,
     lastScanDate: null,
     topProduct: null
-  },
-  recentScans: [],
-  citationTrend: [
-    { date: "Lun", rate: 0 },
-    { date: "Mar", rate: 0 },
-    { date: "Mer", rate: 0 },
-    { date: "Jeu", rate: 0 },
-    { date: "Ven", rate: 0 },
-    { date: "Sam", rate: 0 },
-    { date: "Dim", rate: 0 }
-  ],
-  platformComparison: [
-    { name: "ChatGPT", value: 0, color: "#10B981" },
-    { name: "Gemini", value: 0, color: "#8B5CF6" }
-  ]
+  }
 };
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   
-  // Pour l'instant on retourne les données mockées
-  // Plus tard on récupérera depuis la DB
   return json({
     ...MOCK_DATA,
     shop: {
@@ -99,10 +60,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Calcul du pourcentage de crédits utilisés
   const creditsPercentage = ((data.shop.maxCredits - data.shop.credits) / data.shop.maxCredits) * 100;
   
-  // Couleur selon le plan
   const planColors = {
     TRIAL: "critical",
     STARTER: "info",
@@ -111,7 +70,6 @@ export default function Dashboard() {
     PRO: "magic"
   };
 
-  // Animation de refresh
   const handleRefresh = () => {
     setIsRefreshing(true);
     setTimeout(() => setIsRefreshing(false), 2000);
@@ -121,8 +79,8 @@ export default function Dashboard() {
     <Page
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span>Tableau de bord</span>
-          <Badge tone={planColors[data.shop.plan] as any}>
+          <span>Tableau de bord RankInAI</span>
+          <Badge tone={planColors[data.shop.plan]}>
             Plan {data.shop.plan}
           </Badge>
         </div>
@@ -142,7 +100,7 @@ export default function Dashboard() {
       ]}
     >
       <Layout>
-        {/* Bannière de bienvenue pour les nouveaux */}
+        {/* Bannière de bienvenue */}
         {data.stats.totalProducts === 0 && (
           <Layout.Section>
             <Banner
@@ -151,17 +109,14 @@ export default function Dashboard() {
               onDismiss={() => {}}
             >
               <p>
-                Commencez par ajouter des produits à votre boutique Shopify. 
-                Ils seront automatiquement synchronisés ici pour l'analyse.
+                Optimisez vos produits pour être cités par ChatGPT et Gemini.
+                Commencez par ajouter des produits à votre boutique Shopify.
               </p>
-              <Button onClick={() => navigate("/app/tutorial")}>
-                Voir le tutoriel
-              </Button>
             </Banner>
           </Layout.Section>
         )}
 
-        {/* Métriques principales */}
+        {/* Cartes métriques */}
         <Layout.Section>
           <div style={{ 
             display: 'grid', 
@@ -190,8 +145,7 @@ export default function Dashboard() {
                   <div style={{ 
                     background: 'rgba(255,255,255,0.2)', 
                     borderRadius: '50%', 
-                    padding: '0.75rem',
-                    backdropFilter: 'blur(10px)'
+                    padding: '0.75rem'
                   }}>
                     <Icon source={SparklesIcon} tone="base" />
                   </div>
@@ -206,18 +160,6 @@ export default function Dashboard() {
                     {Math.round(creditsPercentage)}% utilisés ce mois
                   </Text>
                 </div>
-                {data.shop.credits < 20 && (
-                  <Button 
-                    size="slim" 
-                    tone="critical"
-                    variant="primary"
-                    fullWidth
-                    onClick={() => navigate("/app/pricing")}
-                    style={{ marginTop: '1rem' }}
-                  >
-                    Recharger les crédits
-                  </Button>
-                )}
               </div>
             </Card>
 
@@ -235,34 +177,19 @@ export default function Dashboard() {
                       Citation Rate moyen
                     </Text>
                     <Text as="h2" variant="heading2xl" style={{ color: 'white', margin: '0.5rem 0' }}>
-                      {data.stats.averageCitationRate > 0 ? (
-                        <>
-                          {data.stats.averageCitationRate}%
-                          {data.stats.averageCitationRate > 50 ? (
-                            <Icon source={TrendingUpIcon} tone="positive" />
-                          ) : (
-                            <Icon source={TrendingDownIcon} tone="critical" />
-                          )}
-                        </>
-                      ) : (
-                        "—"
-                      )}
+                      —
                     </Text>
                   </div>
                   <div style={{ 
                     background: 'rgba(255,255,255,0.2)', 
                     borderRadius: '50%', 
-                    padding: '0.75rem',
-                    backdropFilter: 'blur(10px)'
+                    padding: '0.75rem'
                   }}>
                     <Icon source={StarIcon} tone="base" />
                   </div>
                 </div>
                 <Text as="p" variant="bodySm" style={{ color: 'rgba(255,255,255,0.8)', marginTop: '1rem' }}>
-                  {data.stats.analyzedProducts > 0 
-                    ? `Basé sur ${data.stats.analyzedProducts} produits analysés`
-                    : "Lancez votre premier scan"
-                  }
+                  Lancez votre premier scan
                 </Text>
               </div>
             </Card>
@@ -281,27 +208,16 @@ export default function Dashboard() {
                       Produits analysés
                     </Text>
                     <Text as="h2" variant="heading2xl" style={{ color: 'white', margin: '0.5rem 0' }}>
-                      {data.stats.analyzedProducts}/{data.stats.totalProducts}
+                      0/0
                     </Text>
                   </div>
                   <div style={{ 
                     background: 'rgba(255,255,255,0.2)', 
                     borderRadius: '50%', 
-                    padding: '0.75rem',
-                    backdropFilter: 'blur(10px)'
+                    padding: '0.75rem'
                   }}>
                     <Icon source={PackageIcon} tone="base" />
                   </div>
-                </div>
-                <div style={{ marginTop: '1rem' }}>
-                  <ProgressBar 
-                    progress={data.stats.totalProducts > 0 
-                      ? (data.stats.analyzedProducts / data.stats.totalProducts) * 100 
-                      : 0
-                    } 
-                    tone="success"
-                    size="small"
-                  />
                 </div>
                 <Button 
                   size="slim" 
@@ -316,194 +232,34 @@ export default function Dashboard() {
           </div>
         </Layout.Section>
 
-        {/* Graphiques */}
-        <Layout.Section>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
-            gap: '1rem'
-          }}>
-            {/* Evolution Citation Rate */}
-            <Card>
-              <div style={{ padding: '1.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <Text as="h3" variant="headingMd">
-                    📈 Évolution du Citation Rate
-                  </Text>
-                  <ButtonGroup variant="segmented">
-                    <Button size="slim">7 jours</Button>
-                    <Button size="slim">30 jours</Button>
-                    <Button size="slim">90 jours</Button>
-                  </ButtonGroup>
-                </div>
-                <ResponsiveContainer width="100%" height={250}>
-                  <AreaChart data={data.citationTrend}>
-                    <defs>
-                      <linearGradient id="colorRate" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                    <XAxis dataKey="date" stroke="#666" />
-                    <YAxis stroke="#666" />
-                    <RechartsTooltip />
-                    <Area 
-                      type="monotone" 
-                      dataKey="rate" 
-                      stroke="#8B5CF6" 
-                      fillOpacity={1} 
-                      fill="url(#colorRate)" 
-                      strokeWidth={2}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-
-            {/* Comparaison Plateformes */}
-            <Card>
-              <div style={{ padding: '1.5rem' }}>
-                <Text as="h3" variant="headingMd" style={{ marginBottom: '1rem' }}>
-                  🤖 Performance par Plateforme
-                </Text>
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie
-                      data={data.platformComparison}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry) => `${entry.name}: ${entry.value}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {data.platformComparison.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', marginTop: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#10B981' }} />
-                    <Text as="span" variant="bodySm">ChatGPT</Text>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#8B5CF6' }} />
-                    <Text as="span" variant="bodySm">Gemini</Text>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </Layout.Section>
-
-        {/* Produits récents / Actions rapides */}
+        {/* État vide */}
         <Layout.Section>
           <Card>
-            <div style={{ padding: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <Text as="h3" variant="headingMd">
-                  ⚡ Actions rapides
-                </Text>
-                <Button onClick={() => navigate("/app/products")} variant="plain">
-                  Voir tout
-                  <Icon source={ChevronRightIcon} />
-                </Button>
-              </div>
-              
-              {data.stats.totalProducts === 0 ? (
-                <EmptyState
-                  heading="Aucun produit synchronisé"
-                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                  action={{
-                    content: "Ajouter des produits",
-                    onAction: () => window.open('https://admin.shopify.com/store/store-du-29-octobre/products', '_blank')
-                  }}
-                >
-                  <p>Ajoutez des produits à votre boutique Shopify pour commencer l'analyse.</p>
-                </EmptyState>
-              ) : (
-                <div style={{ display: 'grid', gap: '1rem' }}>
-                  {/* Liste des produits récents */}
-                  <div style={{
-                    padding: '1rem',
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '0.5rem',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    ':hover': {
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                    }
-                  }}>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                      <Thumbnail
-                        source="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                        alt="Product"
-                        size="small"
-                      />
-                      <div>
-                        <Text as="p" variant="bodyMd" fontWeight="semibold">
-                          Produit exemple
-                        </Text>
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          Jamais analysé
-                        </Text>
-                      </div>
-                    </div>
-                    <Button size="slim" variant="primary">
-                      Scanner maintenant
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <EmptyState
+              heading="Commencez à optimiser vos produits"
+              image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+              action={{
+                content: "Ajouter des produits",
+                onAction: () => window.open('https://admin.shopify.com/store/store-du-29-octobre/products', '_blank')
+              }}
+            >
+              <p>
+                Ajoutez des produits à votre boutique Shopify pour commencer à les optimiser 
+                pour ChatGPT et Gemini.
+              </p>
+            </EmptyState>
           </Card>
         </Layout.Section>
 
-        {/* Alertes et notifications */}
+        {/* Alertes */}
         <Layout.Section>
           <Card>
             <div style={{ padding: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <Text as="h3" variant="headingMd">
-                  🔔 Alertes & Insights
-                </Text>
-                <Badge tone="attention">3 nouvelles</Badge>
-              </div>
+              <Text as="h3" variant="headingMd">
+                🔔 Conseils pour bien démarrer
+              </Text>
               
-              <div style={{ display: 'grid', gap: '0.75rem' }}>
-                {data.shop.credits < 20 && (
-                  <div style={{
-                    padding: '0.75rem',
-                    background: '#FEF2F2',
-                    border: '1px solid #FCA5A5',
-                    borderRadius: '0.5rem',
-                    display: 'flex',
-                    gap: '0.75rem',
-                    alignItems: 'flex-start'
-                  }}>
-                    <Icon source={AlertCircleIcon} tone="critical" />
-                    <div style={{ flex: 1 }}>
-                      <Text as="p" variant="bodySm" fontWeight="semibold">
-                        Crédits bientôt épuisés
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Il vous reste seulement {data.shop.credits} crédits. Pensez à recharger.
-                      </Text>
-                    </div>
-                    <Button size="slim" onClick={() => navigate("/app/pricing")}>
-                      Recharger
-                    </Button>
-                  </div>
-                )}
-                
+              <div style={{ marginTop: '1rem', display: 'grid', gap: '0.75rem' }}>
                 <div style={{
                   padding: '0.75rem',
                   background: '#F0FDF4',
@@ -519,7 +275,7 @@ export default function Dashboard() {
                       Conseil d'optimisation
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
-                      Analysez vos produits best-sellers en premier pour maximiser l'impact.
+                      Commencez par analyser vos produits best-sellers pour maximiser l'impact.
                     </Text>
                   </div>
                 </div>
