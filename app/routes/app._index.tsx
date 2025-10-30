@@ -10,7 +10,10 @@ import {
   Icon,
   ProgressBar,
   EmptyState,
-  Banner
+  Banner,
+  BlockStack,
+  InlineStack,
+  Box
 } from "@shopify/polaris";
 import enTranslations from '@shopify/polaris/locales/en.json';
 import {
@@ -18,7 +21,7 @@ import {
   StarFilledIcon,
   PackageIcon,
   RefreshIcon,
-  ArrowUpIcon
+  ChartVerticalFilledIcon
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import { useState } from "react";
@@ -43,7 +46,6 @@ const MOCK_DATA = {
 export const loader = async ({ request }: { request: Request }) => {
   const { admin, session } = await authenticate.admin(request);
   
-  // Au lieu de json(), on retourne directement l'objet
   return {
     ...MOCK_DATA,
     shop: {
@@ -58,16 +60,9 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const creditsPercentage = ((data.shop.maxCredits - data.shop.credits) / data.shop.maxCredits) * 100;
+  const creditsUsed = data.shop.maxCredits - data.shop.credits;
+  const creditsPercentage = (creditsUsed / data.shop.maxCredits) * 100;
   
-  const planColors = {
-    TRIAL: "critical",
-    STARTER: "info",
-    PLUS: "success",
-    GROWTH: "warning",
-    PRO: "magic"
-  };
-
   const handleRefresh = () => {
     setIsRefreshing(true);
     setTimeout(() => setIsRefreshing(false), 2000);
@@ -76,213 +71,238 @@ export default function Dashboard() {
   return (
     <AppProvider i18n={enTranslations}>
       <Page
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span>Tableau de bord RankInAI</span>
-            <Badge tone={planColors[data.shop.plan]}>
-              Plan {data.shop.plan}
-            </Badge>
-          </div>
-        }
+        title="Tableau de bord RankInAI"
         primaryAction={{
           content: "Scanner un produit",
-          icon: SearchIcon,
           onAction: () => navigate("/app/products")
         }}
         secondaryActions={[
           {
             content: "Actualiser",
-            icon: RefreshIcon,
             onAction: handleRefresh,
             loading: isRefreshing
           }
         ]}
       >
-        <Layout>
-          {/* Bannière de bienvenue */}
+        <BlockStack gap="500">
+          {/* Badge du plan */}
+          <InlineStack align="start">
+            <Badge tone="attention">Plan {data.shop.plan}</Badge>
+          </InlineStack>
+
+          {/* Bannière de bienvenue si pas de produits */}
           {data.stats.totalProducts === 0 && (
-            <Layout.Section>
-              <Banner
-                title="🎉 Bienvenue sur RankInAI !"
-                tone="info"
-                onDismiss={() => {}}
-              >
-                <p>
-                  Optimisez vos produits pour être cités par ChatGPT et Gemini.
-                  Commencez par ajouter des produits à votre boutique Shopify.
-                </p>
-              </Banner>
-            </Layout.Section>
+            <Banner
+              title="Bienvenue sur RankInAI ! 🎉"
+              tone="info"
+              onDismiss={() => {}}
+            >
+              <p>
+                Optimisez vos produits pour être cités par ChatGPT et Gemini.
+                Commencez par ajouter des produits à votre boutique Shopify.
+              </p>
+            </Banner>
           )}
 
-          {/* Cartes métriques */}
-          <Layout.Section>
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '1rem',
-              marginBottom: '1.5rem'
-            }}>
-              {/* Carte Crédits */}
-              <Card>
-                <div style={{
-                  padding: '1.5rem',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  borderRadius: '0.5rem',
-                  color: 'white'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <Text as="p" variant="bodyMd" tone="subdued" style={{ color: 'rgba(255,255,255,0.8)' }}>
-                        Crédits disponibles
-                      </Text>
-                      <Text as="h2" variant="heading2xl" style={{ color: 'white', margin: '0.5rem 0' }}>
-                        {data.shop.credits}
-                        <span style={{ fontSize: '0.5em', opacity: 0.8 }}>/{data.shop.maxCredits}</span>
-                      </Text>
-                    </div>
-                    <div style={{ 
-                      background: 'rgba(255,255,255,0.2)', 
-                      borderRadius: '50%', 
-                      padding: '0.75rem'
-                    }}>
-                      <Icon source={StarFilledIcon} tone="base" />
-                    </div>
-                  </div>
-                  <div style={{ marginTop: '1rem' }}>
-                    <ProgressBar 
-                      progress={100 - creditsPercentage} 
-                      tone="primary"
-                      size="small"
-                    />
-                    <Text as="p" variant="bodySm" style={{ color: 'rgba(255,255,255,0.8)', marginTop: '0.5rem' }}>
-                      {Math.round(creditsPercentage)}% utilisés ce mois
-                    </Text>
-                  </div>
-                </div>
-              </Card>
+          {/* Cartes métriques principales */}
+          <Layout>
+            <Layout.Section>
+              <InlineStack gap="400" align="stretch" blockAlign="stretch">
+                {/* Carte Crédits */}
+                <Box width="100%">
+                  <Card>
+                    <Box padding="400">
+                      <BlockStack gap="300">
+                        <InlineStack align="space-between">
+                          <Text variant="headingMd" as="h3">
+                            Crédits disponibles
+                          </Text>
+                          <Icon source={StarFilledIcon} tone="base" />
+                        </InlineStack>
+                        
+                        <Text variant="heading2xl" as="p">
+                          {data.shop.credits}
+                          <Text as="span" variant="headingMd" tone="subdued">
+                            /{data.shop.maxCredits}
+                          </Text>
+                        </Text>
+                        
+                        <ProgressBar 
+                          progress={100 - creditsPercentage} 
+                          tone="primary"
+                          size="small"
+                        />
+                        
+                        <Text variant="bodySm" tone="subdued">
+                          {creditsUsed} crédits utilisés ce mois
+                        </Text>
 
-              {/* Carte Citation Rate */}
-              <Card>
-                <div style={{
-                  padding: '1.5rem',
-                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                  borderRadius: '0.5rem',
-                  color: 'white'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <Text as="p" variant="bodyMd" style={{ color: 'rgba(255,255,255,0.8)' }}>
-                        Citation Rate moyen
-                      </Text>
-                      <Text as="h2" variant="heading2xl" style={{ color: 'white', margin: '0.5rem 0' }}>
-                        —
-                      </Text>
-                    </div>
-                    <div style={{ 
-                      background: 'rgba(255,255,255,0.2)', 
-                      borderRadius: '50%', 
-                      padding: '0.75rem'
-                    }}>
-                      <Icon source={StarFilledIcon} tone="base" />
-                    </div>
-                  </div>
-                  <Text as="p" variant="bodySm" style={{ color: 'rgba(255,255,255,0.8)', marginTop: '1rem' }}>
-                    Lancez votre premier scan
-                  </Text>
-                </div>
-              </Card>
+                        {data.shop.credits < 20 && (
+                          <Button 
+                            size="slim" 
+                            tone="critical"
+                            fullWidth
+                            onClick={() => navigate("/app/pricing")}
+                          >
+                            Recharger
+                          </Button>
+                        )}
+                      </BlockStack>
+                    </Box>
+                  </Card>
+                </Box>
 
-              {/* Carte Produits */}
-              <Card>
-                <div style={{
-                  padding: '1.5rem',
-                  background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-                  borderRadius: '0.5rem',
-                  color: 'white'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <Text as="p" variant="bodyMd" style={{ color: 'rgba(255,255,255,0.8)' }}>
-                        Produits analysés
-                      </Text>
-                      <Text as="h2" variant="heading2xl" style={{ color: 'white', margin: '0.5rem 0' }}>
-                        0/0
-                      </Text>
-                    </div>
-                    <div style={{ 
-                      background: 'rgba(255,255,255,0.2)', 
-                      borderRadius: '50%', 
-                      padding: '0.75rem'
-                    }}>
-                      <Icon source={PackageIcon} tone="base" />
-                    </div>
-                  </div>
-                  <Button 
-                    size="slim" 
-                    fullWidth
-                    onClick={() => navigate("/app/products")}
-                    style={{ marginTop: '1rem' }}
-                  >
-                    Voir tous les produits
-                  </Button>
-                </div>
-              </Card>
-            </div>
-          </Layout.Section>
+                {/* Carte Citation Rate */}
+                <Box width="100%">
+                  <Card>
+                    <Box padding="400">
+                      <BlockStack gap="300">
+                        <InlineStack align="space-between">
+                          <Text variant="headingMd" as="h3">
+                            Citation Rate moyen
+                          </Text>
+                          <Icon source={ChartVerticalFilledIcon} tone="base" />
+                        </InlineStack>
+                        
+                        <Text variant="heading2xl" as="p">
+                          {data.stats.averageCitationRate > 0 
+                            ? `${data.stats.averageCitationRate}%`
+                            : "—"
+                          }
+                        </Text>
+                        
+                        <Text variant="bodySm" tone="subdued">
+                          {data.stats.analyzedProducts > 0 
+                            ? `Sur ${data.stats.analyzedProducts} produits`
+                            : "Lancez votre premier scan"
+                          }
+                        </Text>
 
-          {/* État vide */}
-          <Layout.Section>
+                        {data.stats.averageCitationRate === 0 && (
+                          <Button 
+                            size="slim" 
+                            fullWidth
+                            onClick={() => navigate("/app/products")}
+                          >
+                            Commencer
+                          </Button>
+                        )}
+                      </BlockStack>
+                    </Box>
+                  </Card>
+                </Box>
+
+                {/* Carte Produits */}
+                <Box width="100%">
+                  <Card>
+                    <Box padding="400">
+                      <BlockStack gap="300">
+                        <InlineStack align="space-between">
+                          <Text variant="headingMd" as="h3">
+                            Produits analysés
+                          </Text>
+                          <Icon source={PackageIcon} tone="base" />
+                        </InlineStack>
+                        
+                        <Text variant="heading2xl" as="p">
+                          {data.stats.analyzedProducts}
+                          <Text as="span" variant="headingMd" tone="subdued">
+                            /{data.stats.totalProducts}
+                          </Text>
+                        </Text>
+                        
+                        {data.stats.totalProducts > 0 && (
+                          <ProgressBar 
+                            progress={(data.stats.analyzedProducts / data.stats.totalProducts) * 100} 
+                            tone="success"
+                            size="small"
+                          />
+                        )}
+                        
+                        <Button 
+                          size="slim" 
+                          fullWidth
+                          onClick={() => navigate("/app/products")}
+                        >
+                          Voir les produits
+                        </Button>
+                      </BlockStack>
+                    </Box>
+                  </Card>
+                </Box>
+              </InlineStack>
+            </Layout.Section>
+          </Layout>
+
+          {/* État vide si pas de produits */}
+          {data.stats.totalProducts === 0 && (
             <Card>
               <EmptyState
                 heading="Commencez à optimiser vos produits"
                 image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
                 action={{
-                  content: "Ajouter des produits",
-                  onAction: () => window.open('https://admin.shopify.com/store/store-du-29-octobre/products', '_blank')
+                  content: "Ajouter des produits dans Shopify",
+                  onAction: () => window.open(`https://admin.shopify.com/store/${data.shop.name}/products/new`, '_blank'),
+                  external: true
                 }}
               >
                 <p>
-                  Ajoutez des produits à votre boutique Shopify pour commencer à les optimiser 
-                  pour ChatGPT et Gemini.
+                  Ajoutez des produits à votre boutique Shopify. 
+                  Ils seront automatiquement synchronisés avec RankInAI.
                 </p>
               </EmptyState>
             </Card>
-          </Layout.Section>
+          )}
 
-          {/* Alertes */}
-          <Layout.Section>
-            <Card>
-              <div style={{ padding: '1.5rem' }}>
-                <Text as="h3" variant="headingMd">
-                  🔔 Conseils pour bien démarrer
+          {/* Section conseils */}
+          <Card>
+            <Box padding="400">
+              <BlockStack gap="400">
+                <Text variant="headingMd" as="h3">
+                  💡 Conseils pour bien démarrer
                 </Text>
                 
-                <div style={{ marginTop: '1rem', display: 'grid', gap: '0.75rem' }}>
-                  <div style={{
-                    padding: '0.75rem',
-                    background: '#F0FDF4',
-                    border: '1px solid #86EFAC',
-                    borderRadius: '0.5rem',
-                    display: 'flex',
-                    gap: '0.75rem',
-                    alignItems: 'flex-start'
-                  }}>
-                    <Icon source={ArrowUpIcon} tone="positive" />
-                    <div>
-                      <Text as="p" variant="bodySm" fontWeight="semibold">
-                        Conseil d'optimisation
+                <BlockStack gap="200">
+                  <InlineStack gap="300" blockAlign="start">
+                    <Box>✅</Box>
+                    <BlockStack gap="100">
+                      <Text variant="bodyMd" fontWeight="semibold">
+                        1. Ajoutez vos produits
                       </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Commencez par analyser vos produits best-sellers pour maximiser l'impact.
+                      <Text variant="bodySm" tone="subdued">
+                        Créez des produits dans votre admin Shopify, ils apparaîtront automatiquement ici.
                       </Text>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </Layout.Section>
-        </Layout>
+                    </BlockStack>
+                  </InlineStack>
+
+                  <InlineStack gap="300" blockAlign="start">
+                    <Box>🔍</Box>
+                    <BlockStack gap="100">
+                      <Text variant="bodyMd" fontWeight="semibold">
+                        2. Lancez votre premier scan
+                      </Text>
+                      <Text variant="bodySm" tone="subdued">
+                        Testez si vos produits sont cités par ChatGPT et Gemini (coût : 3 crédits).
+                      </Text>
+                    </BlockStack>
+                  </InlineStack>
+
+                  <InlineStack gap="300" blockAlign="start">
+                    <Box>🚀</Box>
+                    <BlockStack gap="100">
+                      <Text variant="bodyMd" fontWeight="semibold">
+                        3. Appliquez les optimisations
+                      </Text>
+                      <Text variant="bodySm" tone="subdued">
+                        Suivez les recommandations IA pour améliorer votre citation rate.
+                      </Text>
+                    </BlockStack>
+                  </InlineStack>
+                </BlockStack>
+              </BlockStack>
+            </Box>
+          </Card>
+        </BlockStack>
       </Page>
     </AppProvider>
   );
