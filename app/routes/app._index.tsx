@@ -1,4 +1,3 @@
-import { json } from "@react-router/node";
 import { useLoaderData, useNavigate } from "react-router";
 import {
   Page,
@@ -14,13 +13,10 @@ import {
 } from "@shopify/polaris";
 import {
   TrendingUpIcon,
-  TrendingDownIcon,
   SearchIcon,
   StarIcon,
-  AlertCircleIcon,
   PackageIcon,
   SparklesIcon,
-  ChevronRightIcon,
   RefreshCwIcon
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
@@ -43,16 +39,17 @@ const MOCK_DATA = {
   }
 };
 
-export const loader = async ({ request }) => {
+export const loader = async ({ request }: { request: Request }) => {
   const { admin, session } = await authenticate.admin(request);
   
-  return json({
+  // Au lieu de json(), on retourne directement l'objet
+  return {
     ...MOCK_DATA,
     shop: {
       ...MOCK_DATA.shop,
       name: session.shop.replace(".myshopify.com", "")
     }
-  });
+  };
 };
 
 export default function Dashboard() {
