@@ -1,4 +1,4 @@
-import { json } from "react-router";
+import { json } from "@remix-run/node";
 import type { ActionFunction } from "react-router";
 import { authenticate } from "../shopify.server";
 import { OpenAIService } from "~/services/openai.service";

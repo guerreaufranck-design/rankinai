@@ -1,5 +1,5 @@
 import type { ActionFunction } from "react-router";
-import { json } from "react-router";
+import { json } from "@remix-run/node";
 import { prisma } from "~/db.server";
 import { GeminiService } from "~/services/gemini.service";
 import crypto from "crypto";

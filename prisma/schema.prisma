@@ -1,16 +1,10 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
-// enough when changing adapters.
-// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
@@ -29,4 +23,234 @@ model Session {
   locale        String?
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
+}
+
+model Alert {
+  id          String    @id
+  shopId      String
+  productId   String?
+  type        AlertType
+  severity    Severity
+  title       String
+  message     String
+  data        Json?
+  actionUrl   String?
+  actionLabel String?
+  isRead      Boolean   @default(false)
+  readAt      DateTime?
+  isDismissed Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  Shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([isRead])
+  @@index([severity])
+  @@index([shopId])
+}
+
+model Event {
+  id        String    @id
+  shopId    String
+  type      EventType
+  data      Json?
+  createdAt DateTime  @default(now())
+  Shop      Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([shopId])
+  @@index([type])
+}
+
+model Optimization {
+  id                 String       @id
+  productId          String
+  currentScore       Int
+  potentialScore     Int
+  recommendations    Json
+  quickWins          Json?
+  isApplied          Boolean      @default(false)
+  appliedAt          DateTime?
+  appliedMethod      ApplyMethod?
+  citationRateBefore Float?
+  citationRateAfter  Float?
+  improvement        Float?
+  createdAt          DateTime     @default(now())
+  Product            Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([isApplied])
+  @@index([productId])
+}
+
+model Product {
+  id               String         @id
+  shopId           String
+  shopifyProductId String         @unique
+  title            String
+  handle           String
+  description      String?
+  descriptionHtml  String?
+  vendor           String?
+  productType      String?
+  tags             String[]
+  priceAmount      Float?
+  currency         String?        @default("EUR")
+  compareAtPrice   Float?
+  availableForSale Boolean        @default(true)
+  totalInventory   Int?
+  featuredImageUrl String?
+  imageUrls        String[]
+  metaTitle        String?
+  metaDescription  String?
+  status           ProductStatus  @default(ACTIVE)
+  publishedAt      DateTime?
+  brandName        String?
+  category         String?
+  keywords         String[]
+  aiSummary        String?
+  targetAudience   String?
+  citationRate     Float          @default(0)
+  chatgptRate      Float          @default(0)
+  geminiRate       Float          @default(0)
+  totalScans       Int            @default(0)
+  lastScanAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime
+  syncedAt         DateTime       @default(now())
+  Optimization     Optimization[]
+  Shop             Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  Scan             Scan[]
+
+  @@index([citationRate])
+  @@index([handle])
+  @@index([lastScanAt])
+  @@index([shopId])
+  @@index([shopifyProductId])
+}
+
+model Scan {
+  id               String     @id
+  shopId           String
+  productId        String
+  platform         Platform
+  question         String
+  fullResponse     String
+  isCited          Boolean    @default(false)
+  citation         String?
+  citationPosition Int?
+  sentiment        Sentiment?
+  ranking          Int?
+  competitors      String[]
+  confidence       Float?
+  creditsUsed      Int        @default(1)
+  scanDuration     Int?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime   @default(now())
+  Product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  Shop             Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([isCited])
+  @@index([platform])
+  @@index([productId])
+  @@index([shopId])
+}
+
+model Shop {
+  id                String        @id
+  shopifyDomain     String        @unique
+  shopName          String
+  email             String?
+  shopOwner         String?
+  accessToken       String
+  scope             String
+  isInstalled       Boolean       @default(true)
+  installedAt       DateTime      @default(now())
+  uninstalledAt     DateTime?
+  plan              Plan          @default(TRIAL)
+  credits           Int           @default(25)
+  maxCredits        Int           @default(25)
+  billingId         String?       @unique
+  billingStatus     BillingStatus @default(INACTIVE)
+  billingCycleStart DateTime?
+  billingCycleEnd   DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime
+  Alert             Alert[]
+  Event             Event[]
+  Product           Product[]
+  Scan              Scan[]
+
+  @@index([isInstalled])
+  @@index([plan])
+  @@index([shopifyDomain])
+}
+
+enum AlertType {
+  CITATION_DROP
+  CITATION_DROP_MODERATE
+  ZERO_CITATIONS
+  MAJOR_IMPROVEMENT
+  COMPETITOR_SURGE
+  NEW_COMPETITOR
+  CREDITS_LOW
+  CREDITS_DEPLETED
+  SCAN_NEEDED
+  BILLING_ISSUE
+}
+
+enum ApplyMethod {
+  MANUAL
+  AUTO
+}
+
+enum BillingStatus {
+  INACTIVE
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum EventType {
+  SHOP_INSTALLED
+  SHOP_UNINSTALLED
+  PRODUCT_SYNCED
+  SCAN_COMPLETED
+  OPTIMIZATION_GENERATED
+  OPTIMIZATION_APPLIED_MANUAL
+  OPTIMIZATION_APPLIED_AUTO
+  PLAN_UPGRADED
+  PLAN_DOWNGRADED
+  CREDITS_RECHARGED
+  ALERT_GENERATED
+}
+
+enum Plan {
+  TRIAL
+  STARTER
+  GROWTH
+  PRO
+}
+
+enum Platform {
+  CHATGPT
+  GEMINI
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
 }
