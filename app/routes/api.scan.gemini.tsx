@@ -1,80 +1,83 @@
+import type { ActionFunctionArgs } from "react-router";
 import { json } from "@remix-run/node";
-import type { ActionFunction } from "react-router";
-import { authenticate } from "../shopify.server";
-import { GeminiService } from "~/services/gemini.service";
+import { authenticate } from "~/shopify.server";
 import { prisma } from "~/db.server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-export const action: ActionFunction = async ({ request }) => {
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+
+export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const formData = await request.formData();
   const productId = formData.get("productId") as string;
-  
+
+  if (!productId) {
+    return json({ error: "Product ID required" }, { status: 400 });
+  }
+
   try {
-    // Get shop and check credits
-    const shop = await prisma.shop.findUnique({
-      where: { shopifyDomain: session.shop }
+    const shop = await prisma.shop.findFirst({
+      where: { shopifyDomain: session.shop },
     });
-    
-    if (!shop || shop.credits < 1) {
-      return json({ error: "Insufficient credits" }, { status: 402 });
+
+    if (!shop || shop.credits <= 0) {
+      return json({ error: "No credits" }, { status: 402 });
     }
-    
-    // Get product with recent scans
+
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      include: {
-        scans: {
-          orderBy: { createdAt: 'desc' },
-          take: 2
-        }
-      }
     });
-    
+
     if (!product) {
       return json({ error: "Product not found" }, { status: 404 });
     }
-    
-    // Get latest ChatGPT and Gemini scans
-    const chatgptScan = product.scans.find(s => s.platform === 'CHATGPT');
-    const geminiScan = product.scans.find(s => s.platform === 'GEMINI');
-    
-    // Deduct credit
+
+    const startTime = Date.now();
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const result = await model.generateContent(`Tell me about ${product.title}`);
+    const fullResponse = result.response.text();
+    const scanDuration = Date.now() - startTime;
+    const isCited = fullResponse.toLowerCase().includes(product.title.toLowerCase());
+
+    await prisma.scan.create({
+      data: {
+        shopId: shop.id,
+        productId: product.id,
+        platform: "GEMINI",
+        question: `Tell me about ${product.title}`,
+        fullResponse,
+        isCited,
+        creditsUsed: 1,
+        scanDuration,
+      },
+    });
+
+    const allScans = await prisma.scan.count({
+      where: { productId: product.id, platform: "GEMINI" },
+    });
+    const citedScans = await prisma.scan.count({
+      where: { productId: product.id, platform: "GEMINI", isCited: true },
+    });
+
+    const geminiRate = allScans > 0 ? Math.round((citedScans / allScans) * 100) : 0;
+
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        geminiRate,
+        totalScans: { increment: 1 },
+        lastScanAt: new Date(),
+      },
+    });
+
     await prisma.shop.update({
       where: { id: shop.id },
-      data: { credits: shop.credits - 1 }
+      data: { credits: { decrement: 1 } },
     });
-    
-    // Generate recommendations with Gemini
-    const recommendations = await GeminiService.generateOptimizationRecommendations(
-      product,
-      chatgptScan,
-      geminiScan
-    );
-    
-    // Save recommendations
-    const optimization = await prisma.optimization.create({
-      data: {
-        productId: productId,
-        currentScore: Math.round(product.citationRate),
-        potentialScore: Math.min(95, Math.round(product.citationRate * 1.5)),
-        recommendations: recommendations,
-        quickWins: recommendations.quickWins
-      }
-    });
-    
-    return json({
-      success: true,
-      optimization: {
-        id: optimization.id,
-        recommendations,
-        currentScore: optimization.currentScore,
-        potentialScore: optimization.potentialScore
-      },
-      creditsRemaining: shop.credits - 1
-    });
-    
-  } catch (error) {
-    console.error("Recommendations generation error:", error);
-    return json({ error: "Failed to generate recommendations" }, { status: 500 });
+
+    return json({ success: true, geminiRate });
+  } catch (error: any) {
+    console.error("Gemini error:", error);
+    return json({ error: error.message }, { status: 500 });
   }
 };

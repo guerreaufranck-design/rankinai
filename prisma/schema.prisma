@@ -1,228 +1,169 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+generator client {
+  provider = "prisma-client-js"
+}
+
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id          String   @id
+  shop        String
+  state       String
+  isOnline    Boolean  @default(false)
+  scope       String?
+  expires     DateTime?
+  accessToken String
+  userId      BigInt?
+  firstName   String?
+  lastName    String?
+  email       String?
+  accountOwner Boolean @default(false)
+  locale      String?
+  collaborator Boolean? @default(false)
+  emailVerified Boolean? @default(false)
+}
+
+model Shop {
+  id             String    @id @default(cuid())
+  shopifyDomain  String    @unique
+  shopName       String
+  accessToken    String
+  plan           Plan      @default(TRIAL)
+  credits        Int       @default(25)
+  maxCredits     Int       @default(25)
+  installedAt    DateTime  @default(now())
+  Product        Product[]
+  Scan           Scan[]
+  Optimization   Optimization[]
+  Alert          Alert[]
+  Event          Event[]
+  BlogPost       BlogPost[]
+}
+
+model Product {
+  id             String    @id @default(cuid())
+  shopId         String
+  shopifyId      String?
+  shopifyGid     String?
+  title          String
+  description    String?
+  handle         String
+  tags           String?
+  citationRate   Int       @default(0)
+  chatgptRate    Int       @default(0)
+  geminiRate     Int       @default(0)
+  totalScans     Int       @default(0)
+  lastScanAt     DateTime?
+  status         ProductStatus @default(ACTIVE)
+  createdAt      DateTime  @default(now())
+  Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  Scan           Scan[]
+  Optimization   Optimization[]
+  OptimizationSuggestion OptimizationSuggestion[]
+  BlogPost       BlogPost[]
+
+  @@index([shopId])
+  @@index([shopifyId])
+}
+
+model Scan {
+  id             String    @id @default(cuid())
+  shopId         String
+  productId      String
+  platform       Platform
+  question       String
+  fullResponse   String
+  isCited        Boolean   @default(false)
+  citation       String?
+  citationPosition Int?
+  competitors    String[]
+  confidence     Float?
+  creditsUsed    Int       @default(1)
+  scanDuration   Int?
+  createdAt      DateTime  @default(now())
+  Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  Product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([productId])
+  @@index([platform])
+}
+
+model Optimization {
+  id          String   @id @default(cuid())
+  shopId      String
+  productId   String
+  field       String
+  oldValue    String?
+  newValue    String
+  appliedAt   DateTime @default(now())
+  Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  Product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([productId])
 }
 
 model Alert {
-  id          String    @id
+  id          String   @id @default(cuid())
   shopId      String
-  productId   String?
-  type        AlertType
-  severity    Severity
-  title       String
   message     String
-  data        Json?
-  actionUrl   String?
-  actionLabel String?
-  isRead      Boolean   @default(false)
-  readAt      DateTime?
-  isDismissed Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  Shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  severity    Severity @default(INFO)
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
-  @@index([createdAt])
-  @@index([isRead])
-  @@index([severity])
   @@index([shopId])
 }
 
 model Event {
-  id        String    @id
-  shopId    String
-  type      EventType
-  data      Json?
-  createdAt DateTime  @default(now())
-  Shop      Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  shopId      String
+  eventType   String
+  eventData   String?
+  createdAt   DateTime @default(now())
+  Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
-  @@index([createdAt])
   @@index([shopId])
-  @@index([type])
+  @@index([eventType])
 }
 
-model Optimization {
-  id                 String       @id
-  productId          String
-  currentScore       Int
-  potentialScore     Int
-  recommendations    Json
-  quickWins          Json?
-  isApplied          Boolean      @default(false)
-  appliedAt          DateTime?
-  appliedMethod      ApplyMethod?
-  citationRateBefore Float?
-  citationRateAfter  Float?
-  improvement        Float?
-  createdAt          DateTime     @default(now())
-  Product            Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+model OptimizationSuggestion {
+  id          String   @id @default(cuid())
+  productId   String
+  type        OptimizationType
+  field       String
+  originalContent String?
+  suggestedContent String
+  reason      String
+  priority    Int      @default(5)
+  status      OptimizationStatus @default(PENDING)
+  appliedAt   DateTime?
+  createdAt   DateTime @default(now())
+  Product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@index([isApplied])
   @@index([productId])
+  @@index([status])
 }
 
-model Product {
-  id               String         @id
-  shopId           String
-  shopifyProductId String         @unique
-  title            String
-  handle           String
-  description      String?
-  descriptionHtml  String?
-  vendor           String?
-  productType      String?
-  tags             String[]
-  priceAmount      Float?
-  currency         String?        @default("EUR")
-  compareAtPrice   Float?
-  availableForSale Boolean        @default(true)
-  totalInventory   Int?
-  featuredImageUrl String?
-  imageUrls        String[]
-  metaTitle        String?
-  metaDescription  String?
-  status           ProductStatus  @default(ACTIVE)
-  publishedAt      DateTime?
-  brandName        String?
-  category         String?
-  keywords         String[]
-  aiSummary        String?
-  targetAudience   String?
-  citationRate     Float          @default(0)
-  chatgptRate      Float          @default(0)
-  geminiRate       Float          @default(0)
-  totalScans       Int            @default(0)
-  lastScanAt       DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime
-  syncedAt         DateTime       @default(now())
-  Optimization     Optimization[]
-  Shop             Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  Scan             Scan[]
+model BlogPost {
+  id          String   @id @default(cuid())
+  shopId      String
+  productId   String?
+  title       String
+  content     String
+  slug        String
+  status      BlogStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  Product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
-  @@index([citationRate])
-  @@index([handle])
-  @@index([lastScanAt])
   @@index([shopId])
-  @@index([shopifyProductId])
-}
-
-model Scan {
-  id               String     @id
-  shopId           String
-  productId        String
-  platform         Platform
-  question         String
-  fullResponse     String
-  isCited          Boolean    @default(false)
-  citation         String?
-  citationPosition Int?
-  sentiment        Sentiment?
-  ranking          Int?
-  competitors      String[]
-  confidence       Float?
-  creditsUsed      Int        @default(1)
-  scanDuration     Int?
-  ipAddress        String?
-  userAgent        String?
-  createdAt        DateTime   @default(now())
-  Product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  Shop             Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
-
-  @@index([createdAt])
-  @@index([isCited])
-  @@index([platform])
   @@index([productId])
-  @@index([shopId])
-}
-
-model Shop {
-  id                String        @id
-  shopifyDomain     String        @unique
-  shopName          String
-  email             String?
-  shopOwner         String?
-  accessToken       String
-  scope             String
-  isInstalled       Boolean       @default(true)
-  installedAt       DateTime      @default(now())
-  uninstalledAt     DateTime?
-  plan              Plan          @default(TRIAL)
-  credits           Int           @default(25)
-  maxCredits        Int           @default(25)
-  billingId         String?       @unique
-  billingStatus     BillingStatus @default(INACTIVE)
-  billingCycleStart DateTime?
-  billingCycleEnd   DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime
-  Alert             Alert[]
-  Event             Event[]
-  Product           Product[]
-  Scan              Scan[]
-
-  @@index([isInstalled])
-  @@index([plan])
-  @@index([shopifyDomain])
-}
-
-enum AlertType {
-  CITATION_DROP
-  CITATION_DROP_MODERATE
-  ZERO_CITATIONS
-  MAJOR_IMPROVEMENT
-  COMPETITOR_SURGE
-  NEW_COMPETITOR
-  CREDITS_LOW
-  CREDITS_DEPLETED
-  SCAN_NEEDED
-  BILLING_ISSUE
-}
-
-enum ApplyMethod {
-  MANUAL
-  AUTO
-}
-
-enum BillingStatus {
-  INACTIVE
-  ACTIVE
-  PAST_DUE
-  CANCELLED
-}
-
-enum EventType {
-  SHOP_INSTALLED
-  SHOP_UNINSTALLED
-  PRODUCT_SYNCED
-  SCAN_COMPLETED
-  OPTIMIZATION_GENERATED
-  OPTIMIZATION_APPLIED_MANUAL
-  OPTIMIZATION_APPLIED_AUTO
-  PLAN_UPGRADED
-  PLAN_DOWNGRADED
-  CREDITS_RECHARGED
-  ALERT_GENERATED
+  @@index([slug])
 }
 
 enum Plan {
@@ -239,18 +180,31 @@ enum Platform {
 
 enum ProductStatus {
   ACTIVE
-  DRAFT
   ARCHIVED
 }
 
-enum Sentiment {
-  POSITIVE
-  NEUTRAL
-  NEGATIVE
+enum Severity {
+  INFO
+  WARNING
+  ERROR
 }
 
-enum Severity {
-  LOW
-  MEDIUM
-  HIGH
+enum OptimizationType {
+  TITLE
+  DESCRIPTION
+  TAGS
+  META
+  BLOG_POST
+}
+
+enum OptimizationStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
 }
