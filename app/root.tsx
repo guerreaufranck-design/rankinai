@@ -1,4 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { ChatBot } from "~/components/ChatBot"; // AJOUTER CETTE LIGNE
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
       </head>
       <body>
         <Outlet />
+        <ChatBot />  {/* AJOUTER CETTE LIGNE */}
         <ScrollRestoration />
         <Scripts />
       </body>

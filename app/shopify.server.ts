@@ -16,6 +16,40 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  
+  // AJOUT DU AFTERAUTH CALLBACK SELON LA DOC 2025
+  afterAuth: async (request, session, admin) => {
+    const shop = session.shop;
+    
+    // Vérifier si le Shop existe déjà
+    const existingShop = await prisma.shop.findUnique({
+      where: { shopifyDomain: shop },
+    });
+    
+    if (!existingShop) {
+      // Créer le Shop s'il n'existe pas
+      await prisma.shop.create({
+        data: {
+          id: `shop_${Date.now()}`,
+          shopifyDomain: shop,
+          shopName: shop.replace('.myshopify.com', ''),
+          accessToken: session.accessToken,
+          scope: session.scope || "read_products,write_products",
+          plan: "TRIAL",
+          credits: 25,
+          maxCredits: 25,
+          isInstalled: true,
+          billingStatus: "INACTIVE",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+      });
+      console.log(`✅ Shop créé automatiquement via afterAuth: ${shop}`);
+    }
+    
+    return true; // Retourner true pour continuer l'authentification
+  },
+  
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
