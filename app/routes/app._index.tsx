@@ -8,193 +8,366 @@ import AppHeader from "~/components/AppHeader";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  const shop = await prisma.shop.findFirst({
+  // CRÉATION AUTOMATIQUE DU SHOP SI N'EXISTE PAS
+  let shop = await prisma.shop.findUnique({
     where: { shopifyDomain: session.shop },
   });
 
   if (!shop) {
+    shop = await prisma.shop.create({
+      data: {
+        shopifyDomain: session.shop,
+        shopName: session.shop.replace('.myshopify.com', ''),
+        accessToken: session.accessToken,
+      },
+    });
+    console.log(`✅ Shop créé automatiquement: ${shop.shopName}`);
+  }
+
+  const shopWithData = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+    include: {
+      Product: {
+        select: {
+          id: true,
+          title: true,
+          citationRate: true,
+          chatgptRate: true,
+          geminiRate: true,
+          totalScans: true,
+        },
+        orderBy: { citationRate: "desc" },
+        take: 5,
+      },
+      Alert: {
+        where: { isRead: false },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+      },
+    },
+  });
+
+  if (!shopWithData) {
     return json({
-      shop: { shopName: "Store", credits: 25, maxCredits: 25 },
+      shop: { shopName: "Store", credits: 0, maxCredits: 25, Product: [], Alert: [] },
       stats: { totalProducts: 0, avgCitationRate: 0, needsAttention: 0 },
-      topPerformers: [],
     });
   }
 
-  const products = await prisma.product.findMany({
-    where: { shopId: shop.id },
-    select: {
-      id: true,
-      title: true,
-      citationRate: true,
-      chatgptRate: true,
-      geminiRate: true,
-      totalScans: true,
-    },
-    orderBy: { citationRate: "desc" },
-  });
-
-  const totalProducts = products.length;
-  const avgCitationRate = totalProducts > 0
-    ? Math.round(products.reduce((sum, p) => sum + p.citationRate, 0) / totalProducts)
-    : 0;
-  const needsAttention = products.filter(p => p.citationRate < 40).length;
-
-  const topPerformers = products.slice(0, 5);
+  const totalProducts = shopWithData.Product.length;
+  const avgCitationRate =
+    totalProducts > 0
+      ? Math.round(shopWithData.Product.reduce((sum, p) => sum + p.citationRate, 0) / totalProducts)
+      : 0;
+  const needsAttention = shopWithData.Product.filter((p) => p.citationRate < 20).length;
 
   return json({
-    shop: {
-      shopName: shop.shopName,
-      credits: shop.credits,
-      maxCredits: shop.maxCredits,
-    },
+    shop: shopWithData,
     stats: { totalProducts, avgCitationRate, needsAttention },
-    topPerformers,
   });
 };
 
-export default function Dashboard() {
-  const { shop, stats, topPerformers } = useLoaderData<typeof loader>();
-
-  const getStatusColor = (rate: number) => {
-    if (rate >= 70) return "#4caf50";
-    if (rate >= 40) return "#ff9800";
-    return "#f44336";
-  };
-
-  const getStatusEmoji = (rate: number) => {
-    if (rate >= 70) return "🔥";
-    if (rate >= 40) return "📈";
-    return "⚠️";
-  };
+export default function Index() {
+  const { shop, stats } = useLoaderData<typeof loader>();
+  const creditPercentage = (shop.credits / shop.maxCredits) * 100;
 
   return (
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "#f6f6f7", minHeight: "100vh" }}>
       <AppHeader />
       
       <div style={{ padding: "0 24px 24px 24px" }}>
-        <div style={{ marginBottom: "32px" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
+        {/* HEADER */}
+        <div style={{ marginBottom: '32px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: '600', margin: '0 0 8px 0', color: '#202223' }}>
             RankInAI Dashboard
           </h1>
-          <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
+          <p style={{ fontSize: '16px', color: '#6d7175', margin: 0 }}>
             Welcome back, {shop.shopName}! 👋
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "24px", marginBottom: "32px" }}>
-          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "8px" }}>💳 Credits</div>
-            <div style={{ fontSize: "32px", fontWeight: "700", color: "#202223", marginBottom: "8px" }}>
-              {shop.credits}/{shop.maxCredits}
+        {/* ALERTS BANNER */}
+        {shop.Alert && shop.Alert.length > 0 && (
+          <div style={{
+            background: '#fff4e6',
+            border: '1px solid #ffc107',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '24px'
+          }}>
+            <strong style={{ color: '#f57c00' }}>⚠️ {shop.Alert.length} Alert{shop.Alert.length > 1 ? 's' : ''}</strong>
+            <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
+              {shop.Alert.map((alert) => (
+                <li key={alert.id} style={{ color: '#5f6368' }}>{alert.title}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* STATS CARDS */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px'
+        }}>
+          {/* Credits Card */}
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '20px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontSize: '14px', fontWeight: '500', color: '#6d7175' }}>💳 Credits</span>
+              <span style={{
+                background: creditPercentage > 50 ? '#e8f5e9' : creditPercentage > 20 ? '#fff3e0' : '#ffebee',
+                color: creditPercentage > 50 ? '#2e7d32' : creditPercentage > 20 ? '#f57c00' : '#c62828',
+                padding: '4px 8px',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '600'
+              }}>
+                {shop.credits}/{shop.maxCredits}
+              </span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ flex: 1, height: "8px", background: "#e0e0e0", borderRadius: "4px", overflow: "hidden" }}>
-                <div style={{ width: `${(shop.credits / shop.maxCredits) * 100}%`, height: "100%", background: shop.credits > 10 ? "#4caf50" : "#f44336", borderRadius: "4px" }} />
-              </div>
+            <div style={{
+              background: '#e0e0e0',
+              height: '8px',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              marginBottom: '8px'
+            }}>
+              <div style={{
+                background: creditPercentage > 50 ? '#4caf50' : creditPercentage > 20 ? '#ff9800' : '#f44336',
+                height: '100%',
+                width: `${creditPercentage}%`,
+                transition: 'width 0.3s'
+              }} />
             </div>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginTop: "8px" }}>
-              {shop.credits > 10 ? "✅ All good" : "⚠️ Running low"}
-            </div>
+            <p style={{ fontSize: '13px', color: '#6d7175', margin: 0 }}>
+              {creditPercentage < 20 ? '⚠️ Running low!' : '✅ All good'}
+            </p>
           </div>
 
-          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "8px" }}>📊 Avg Citation Rate</div>
-            <div style={{ fontSize: "32px", fontWeight: "700", color: getStatusColor(stats.avgCitationRate), marginBottom: "8px" }}>
+          {/* Citation Rate Card */}
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '20px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <span style={{ fontSize: '14px', fontWeight: '500', color: '#6d7175' }}>📊 Avg Citation Rate</span>
+            <h2 style={{ fontSize: '36px', fontWeight: '700', margin: '8px 0', color: '#202223' }}>
               {stats.avgCitationRate}%
-            </div>
-            <div style={{ fontSize: "13px", color: "#6d7175" }}>
-              {getStatusEmoji(stats.avgCitationRate)} {stats.avgCitationRate >= 70 ? "Excellent!" : stats.avgCitationRate >= 40 ? "Good progress" : "Needs improvement"}
-            </div>
+            </h2>
+            <p style={{ fontSize: '13px', color: '#6d7175', margin: 0 }}>
+              {stats.avgCitationRate > 50 ? '🔥 Excellent!' : stats.avgCitationRate > 30 ? '📈 Good' : '📊 Improving'}
+            </p>
           </div>
 
-          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "8px" }}>📦 Products</div>
-            <div style={{ fontSize: "32px", fontWeight: "700", color: "#202223", marginBottom: "8px" }}>
+          {/* Products Card */}
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '20px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <span style={{ fontSize: '14px', fontWeight: '500', color: '#6d7175' }}>📦 Products</span>
+            <h2 style={{ fontSize: '36px', fontWeight: '700', margin: '8px 0', color: '#202223' }}>
               {stats.totalProducts}
-            </div>
-            <Link to="/app/products" style={{ fontSize: "13px", color: "#2196f3", textDecoration: "none", fontWeight: "500" }}>
+            </h2>
+            <Link to="/app/products" style={{ fontSize: '13px', color: '#2196f3', textDecoration: 'none' }}>
               View all →
             </Link>
           </div>
 
-          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "8px" }}>⚠️ Needs Attention</div>
-            <div style={{ fontSize: "32px", fontWeight: "700", color: stats.needsAttention > 0 ? "#f44336" : "#4caf50", marginBottom: "8px" }}>
+          {/* Needs Attention Card */}
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '20px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <span style={{ fontSize: '14px', fontWeight: '500', color: '#6d7175' }}>⚠️ Needs Attention</span>
+            <h2 style={{ fontSize: '36px', fontWeight: '700', margin: '8px 0', color: stats.needsAttention > 0 ? '#f44336' : '#4caf50' }}>
               {stats.needsAttention}
-            </div>
-            <div style={{ fontSize: "13px", color: "#6d7175" }}>
-              {stats.needsAttention === 0 ? "🎉 All good!" : "Products below 40%"}
-            </div>
+            </h2>
+            <p style={{ fontSize: '13px', color: '#6d7175', margin: 0 }}>
+              {stats.needsAttention > 0 ? 'products need help' : '🎉 All good!'}
+            </p>
           </div>
         </div>
 
-        {/* Top Performers */}
-        <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: 0, color: "#202223" }}>
+        {/* TOP PERFORMERS */}
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          padding: '24px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          marginBottom: '24px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0, color: '#202223' }}>
               🏆 Top Performers
             </h2>
-            <Link to="/app/products" style={{ fontSize: "14px", color: "#2196f3", textDecoration: "none", fontWeight: "500" }}>
+            <Link to="/app/products" style={{
+              color: '#2196f3',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}>
               View all →
             </Link>
           </div>
 
-          {topPerformers.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 20px" }}>
-              <p style={{ fontSize: "16px", color: "#9e9e9e", margin: 0 }}>
-                No products scanned yet. Start scanning to see your top performers!
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {topPerformers.map((product, index) => (
-                <div key={product.id} style={{ display: "flex", alignItems: "center", gap: "16px", padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "700", color: "#9e9e9e", minWidth: "40px" }}>
-                    #{index + 1}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "15px", fontWeight: "600", color: "#202223", marginBottom: "4px" }}>
-                      {product.title}
-                    </div>
-                    <div style={{ display: "flex", gap: "12px", fontSize: "13px" }}>
-                      <span style={{ background: "#e3f2fd", color: "#1976d2", padding: "2px 8px", borderRadius: "4px" }}>
-                        ChatGPT: {product.chatgptRate}%
+          {shop.Product && shop.Product.length > 0 ? (
+            <div>
+              {shop.Product.map((product, index) => (
+                <div key={product.id} style={{
+                  padding: '16px 0',
+                  borderBottom: index < shop.Product.length - 1 ? '1px solid #e0e0e0' : 'none'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flex: 1 }}>
+                      <span style={{ 
+                        fontSize: '20px', 
+                        fontWeight: '700', 
+                        color: '#9e9e9e',
+                        minWidth: '30px'
+                      }}>
+                        #{index + 1}
                       </span>
-                      <span style={{ background: "#e8f5e9", color: "#388e3c", padding: "2px 8px", borderRadius: "4px" }}>
-                        Gemini: {product.geminiRate}%
-                      </span>
-                      <span style={{ color: "#6d7175" }}>
-                        {product.totalScans} scans
-                      </span>
+                      <div style={{ flex: 1 }}>
+                        <h3 style={{ fontSize: '15px', fontWeight: '600', margin: '0 0 8px 0', color: '#202223' }}>
+                          {product.title}
+                        </h3>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{
+                            background: '#e3f2fd',
+                            color: '#1976d2',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500'
+                          }}>
+                            ChatGPT: {product.chatgptRate}%
+                          </span>
+                          <span style={{
+                            background: '#e8f5e9',
+                            color: '#388e3c',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500'
+                          }}>
+                            Gemini: {product.geminiRate}%
+                          </span>
+                          <span style={{ fontSize: '12px', color: '#9e9e9e' }}>
+                            {product.totalScans} scans
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '24px', fontWeight: '700', color: '#202223' }}>
+                          {product.citationRate}%
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#9e9e9e' }}>
+                          Citation Rate
+                        </div>
+                      </div>
+                      <Link
+                        to={`/app/products/${product.id}`}
+                        style={{
+                          background: '#2196f3',
+                          color: 'white',
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          textDecoration: 'none',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        Optimize
+                      </Link>
                     </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "24px", fontWeight: "700", color: getStatusColor(product.citationRate) }}>
-                      {product.citationRate}%
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#6d7175" }}>Citation Rate</div>
-                  </div>
-                  <Link
-                    to="/app/products"
-                    style={{
-                      background: "#2196f3",
-                      color: "white",
-                      border: "none",
-                      padding: "8px 16px",
-                      borderRadius: "6px",
-                      fontSize: "13px",
-                      fontWeight: "600",
-                      textDecoration: "none",
-                      display: "inline-block",
-                    }}
-                  >
-                    Optimize
-                  </Link>
                 </div>
               ))}
             </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <p style={{ color: '#9e9e9e', marginBottom: '16px' }}>No products analyzed yet</p>
+              <Link
+                to="/app/products"
+                style={{
+                  background: '#2196f3',
+                  color: 'white',
+                  padding: '10px 20px',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  display: 'inline-block'
+                }}
+              >
+                Analyze your first product
+              </Link>
+            </div>
           )}
+        </div>
+
+        {/* QUICK ACTIONS */}
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          padding: '24px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        }}>
+          <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 16px 0', color: '#202223' }}>
+            ⚡ Quick Actions
+          </h2>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <Link to="/app/products" style={{
+              background: '#f5f5f5',
+              color: '#202223',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '500',
+              border: '1px solid #e0e0e0'
+            }}>
+              📦 View All Products
+            </Link>
+            <Link to="/app/analytics" style={{
+              background: '#f5f5f5',
+              color: '#202223',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '500',
+              border: '1px solid #e0e0e0'
+            }}>
+              📊 Analytics
+            </Link>
+            <Link to="/app/assistant" style={{
+              background: '#f5f5f5',
+              color: '#202223',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '500',
+              border: '1px solid #e0e0e0'
+            }}>
+              🤖 AI Assistant
+            </Link>
+          </div>
         </div>
       </div>
     </div>
