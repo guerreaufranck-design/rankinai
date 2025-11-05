@@ -2,6 +2,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "build",
   "framework": null,
+  "functions": {
+    "api/serverless.js": {
+      "runtime": "@vercel/node@3.0.0"
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",

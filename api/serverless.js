@@ -1,7 +1,9 @@
-const { createRequestHandler } = require("@react-router/express");
-const express = require("express");
+import { createRequestHandler } from "@react-router/express";
+import express from "express";
+import * as build from "../build/server/index.js";
+
 const app = express();
 
-app.all("*", createRequestHandler({ build: require("../build") }));
+app.all("*", createRequestHandler({ build }));
 
-module.exports = app;
+export default app;
