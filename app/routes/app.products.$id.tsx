@@ -351,3 +351,4 @@ export default function ProductDetail() {
     </AppProvider>
   );
 }
+// Force Vercel rebuild - Mer  5 nov 2025 08:54:56 WET
