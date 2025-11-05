@@ -21,7 +21,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=20.10"
+    "node": "18.x"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
