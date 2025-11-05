@@ -2,7 +2,7 @@
 
 client_id = "f1a5827b7d612c239b5d6e2c8c110d44"
 name = "RankInAi"
-application_url = "https://rankinai.app"
+application_url = "https://rankinai.vercel.app"
 embedded = true
 
 [build]
@@ -28,7 +28,7 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
+  "https://rankinai.vercel.app/auth/callback",
   "https://localhost:3000/auth/callback",
-  "http://localhost:3000/auth/callback",
-  "https://votre-ngrok-url.ngrok.io/auth/callback"
+  "http://localhost:3000/auth/callback"
 ]
