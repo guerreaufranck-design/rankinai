@@ -20,7 +20,11 @@ import {
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { authenticate } from "../shopify.server";
 import { prisma } from "~/db.server";
-import { formatDate, formatPrice, getCitationRateTone } from "~/utils/helpers";
+import { formatDate, formatPrice } from "~/utils/helpers";
+import { getCitationRateTone } from "~/constants";
+
+// TOUT LE RESTE DU CODE RESTE IDENTIQUE
+// Juste la ligne 23 qui change
 
 export const loader = async ({ request, params }: { request: Request, params: any }) => {
   const { admin, session } = await authenticate.admin(request);
