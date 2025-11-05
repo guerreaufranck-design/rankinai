@@ -77,28 +77,69 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ error: "No credits remaining" }, { status: 402 });
       }
 
-      const prompt = `You are an SEO and e-commerce expert. Analyze this product and provide optimization suggestions to improve its visibility in AI recommendations (ChatGPT, Gemini) AND traditional search engines.
+      // ⭐ NOUVEAU PROMPT STORE-CENTRIC + SERVICE-AWARE
+      const prompt = `You are an AIO (AI Optimization) and e-commerce expert. Your PRIMARY GOAL is to make AI assistants (ChatGPT, Gemini) recommend THE STORE AND ITS SERVICE together with the product, driving traffic to the merchant's website.
 
-Product Title: ${product.title}
-Current Description: ${product.description || "No description"}
-Current Tags: ${product.tags || "No tags"}
-Current AI Citation Rate: ${product.citationRate}%
+🎯 CRITICAL RULES:
+1. Always mention the store name "${shop.shopName}" naturally 2-3 times in the description
+2. Identify the business model from the product/store context (is it selling, renting, services, subscription?)
+3. Emphasize the STORE'S VALUE PROPOSITION, not just the product features
+4. Make it clear WHY users should choose THIS store over competitors or direct manufacturers
+
+Context:
+- Store Name: ${shop.shopName}
+- Store Domain: ${session.shop}
+- Product Title: ${product.title}
+- Current Description: ${product.description || "No description"}
+- Current Tags: ${product.tags || "No tags"}
+- Current AI Citation Rate: ${product.citationRate}%
+
+OPTIMIZATION STRATEGY:
+1. **Identify business model**: Look at the product title and description. Is this store SELLING products, RENTING/LEASING them, offering SERVICES, or SUBSCRIPTIONS? Adapt all content accordingly.
+
+2. **Title optimization**: 
+   - If SELLING: "[Product] - [Key Benefit] | ${shop.shopName}"
+   - If RENTING/LEASING: "[Product] Rental/Location - [Service Benefit] | ${shop.shopName}"
+   - If SERVICE: "[Service] for [Product] - [Unique Value] | ${shop.shopName}"
+
+3. **Description strategy**:
+   - First paragraph: Mention "${shop.shopName}" + business model (rental/sale/service) + unique value proposition
+   - Middle: Product features + how the STORE enhances the experience
+   - End: Call-to-action mentioning "${shop.shopName}" + differentiator
+   - Include "Available at/through ${shop.shopName}" naturally
+
+4. **FAQ must include**:
+   - "Where can I [buy/rent/get] this?" → Answer with store name + unique benefit
+   - "Why choose ${shop.shopName}?" → Answer highlighting differentiators
+
+5. **Business model examples**:
+   - RENTAL: "Rent the [Product] through ${shop.shopName} - delivery included, flexible durations"
+   - SALE: "Buy the [Product] at ${shop.shopName} - expert advice, warranty, fast shipping"
+   - SERVICE: "Get [Service] for [Product] from ${shop.shopName} - certified professionals, satisfaction guarantee"
+
+WHY THIS MATTERS:
+- "Baby stroller rental" → AI says "Rent at [CompetitorBrand]" = you lose
+- "Baby stroller rental with ${shop.shopName} - delivery included" → AI says "Rent at ${shop.shopName}" = you win
+- Without store mention = 0 traffic, product goes to manufacturer or Amazon
+- With store + service mention = direct traffic to YOUR website
 
 Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, no markdown, no explanations):
 {
-  "title": "Improved title (concise, add key benefits)",
-  "description": "SEO-optimized description (300-500 words, include benefits, features, use cases, natural keywords)",
+  "title": "Optimized title including business model (rental/sale/service) and store name when natural",
+  "description": "AIO-optimized description (300-500 words) - MUST mention '${shop.shopName}' at least 2-3 times naturally + emphasize business model (rental/sale/service) + unique value proposition vs competitors + benefits, features, use cases + natural keywords",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "faq": [
-    {"question": "Question 1?", "answer": "Answer 1"},
-    {"question": "Question 2?", "answer": "Answer 2"},
-    {"question": "Question 3?", "answer": "Answer 3"}
+    {"question": "Question about product/service", "answer": "Answer highlighting ${shop.shopName} value"},
+    {"question": "Why choose ${shop.shopName}?", "answer": "Answer with unique differentiators"},
+    {"question": "Where can I [rent/buy/get] this?", "answer": "Available at ${shop.shopName} with [unique benefit like free delivery, warranty, etc.]"}
   ],
-  "metaTitle": "SEO meta title (max 60 characters)",
-  "metaDescription": "SEO meta description (max 160 characters)",
-  "blogPostTitle": "Engaging blog post title about this product",
-  "reasoning": "Why these changes will improve both AI visibility and SEO"
-}`;
+  "metaTitle": "SEO meta title (max 60 chars) - Include business model + product + ${shop.shopName}",
+  "metaDescription": "SEO meta description (max 160 chars) - Include business model + product + ${shop.shopName} + CTA",
+  "blogPostTitle": "Engaging blog post title mentioning product category and ${shop.shopName} service",
+  "reasoning": "Explain how these changes will make AI assistants cite BOTH the product AND ${shop.shopName} with its specific business model (rental/sale/service), driving qualified traffic instead of losing customers to competitors or manufacturers"
+}
+
+REMEMBER: The goal is not just product citation, but STORE + BUSINESS MODEL + PRODUCT citation to generate actual traffic!`;
 
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.0-flash-exp",
@@ -129,7 +170,7 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
         data: { credits: { decrement: 1 } },
       });
 
-      console.log(`✨ Optimization suggestions generated for ${product.title} - 1 credit used`);
+      console.log(`✨ AIO suggestions generated for ${product.title} - 1 credit used`);
 
       return json({ 
         success: true, 
@@ -255,18 +296,36 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
         try {
           console.log(`📝 Generating blog post: ${selectedOptimizations.blogPost}`);
 
-          const blogPrompt = `Write a comprehensive, SEO-optimized blog post:
+          // ⭐ NOUVEAU PROMPT BLOG AVEC STORE-CENTRIC
+          const blogPrompt = `Write a comprehensive, AIO and SEO-optimized blog post:
 
+Store Name: ${shop.shopName}
+Store Domain: ${session.shop}
 Product: ${product.title}
 Description: ${product.description}
 Blog Title: ${selectedOptimizations.blogPost}
 
+🎯 CRITICAL: Mention the store name "${shop.shopName}" naturally 5-8 times throughout the article.
+
+CONTENT STRATEGY:
+- Identify the business model (selling/rental/service) and emphasize it
+- Include phrases like:
+  * "Available at ${shop.shopName}"
+  * "Order from ${shop.shopName}" 
+  * "${shop.shopName} offers"
+  * "Visit ${shop.shopName} to discover"
+  * "Why choose ${shop.shopName}"
+- Focus on the STORE's unique value proposition, not just product features
+- Differentiate from competitors and manufacturers
+
+This ensures AI assistants will cite both the product AND the store when recommending.
+
 Requirements:
 - 800-1200 words
-- Include product benefits and use cases
-- SEO-optimized with natural keyword placement
+- Include product benefits AND store benefits
+- AIO-optimized with natural keyword placement + store mentions
 - Engaging and informative tone
-- Include a call-to-action at the end
+- Include a strong call-to-action mentioning ${shop.shopName} at the end
 - HTML formatted with proper paragraphs and headings
 - Use <h2> for section titles, <h3> for subsections
 - Use <p> tags for paragraphs
@@ -274,9 +333,9 @@ Requirements:
 
 Return ONLY valid JSON (no markdown, no code blocks):
 {
-  "title": "Blog post title",
-  "bodyHtml": "Full HTML content with proper formatting (800-1200 words)",
-  "summary": "Brief 2-3 sentence summary for meta description"
+  "title": "Blog post title including ${shop.shopName}",
+  "bodyHtml": "Full HTML content with proper formatting (800-1200 words) - MUST mention ${shop.shopName} 5-8 times naturally",
+  "summary": "Brief 2-3 sentence summary for meta description mentioning ${shop.shopName}"
 }`;
 
           const blogModel = genAI.getGenerativeModel({ 
@@ -413,7 +472,7 @@ export default function Optimize() {
     formData.append("action", "applyOptimizations");
     formData.append("productId", selectedProduct.id);
     formData.append("selectedOptimizations", JSON.stringify(optimizationsToApply));
-    formData.append("shopDomain", shop.shopName); // Pass shop domain for blog link
+    formData.append("shopDomain", shop.shopName);
     
     fetcher.submit(formData, { method: "post" });
   };
@@ -465,7 +524,7 @@ export default function Optimize() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
               <h2 style={{ fontSize: "24px", fontWeight: "600", margin: 0, color: "#202223" }}>
-                ✨ Optimization Suggestions
+                ✨ AIO Suggestions
               </h2>
               <button
                 onClick={() => {
@@ -499,7 +558,7 @@ export default function Optimize() {
               <div style={{ textAlign: "center", padding: "60px 20px" }}>
                 <div style={{ fontSize: "48px", marginBottom: "16px" }}>🤖</div>
                 <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
-                  Generating AI-powered suggestions with Gemini 2.0 Flash... (1 credit)
+                  Generating AIO-powered suggestions with Gemini 2.0 Flash... (1 credit)
                 </p>
               </div>
             ) : suggestions ? (
@@ -519,7 +578,7 @@ export default function Optimize() {
                     />
                     <div style={{ flex: 1 }}>
                       <h4 style={{ fontSize: "16px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
-                        📝 AI-Optimized Title
+                        📝 AIO-Optimized Title
                       </h4>
                       <div style={{ fontSize: "14px", color: "#2e7d32", marginBottom: "8px", fontWeight: "500" }}>
                         {suggestions.title}
@@ -542,7 +601,7 @@ export default function Optimize() {
                     />
                     <div style={{ flex: 1 }}>
                       <h4 style={{ fontSize: "16px", fontWeight: "600", margin: "0 0 12px 0", color: "#202223" }}>
-                        📄 AI-Optimized Description
+                        📄 AIO-Optimized Description
                       </h4>
                       <div 
                         style={{ 
@@ -640,13 +699,13 @@ export default function Optimize() {
                       />
                       <div style={{ flex: 1 }}>
                         <h4 style={{ fontSize: "16px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
-                          📝 SEO Blog Post (800-1200 words)
+                          📝 AIO Blog Post (800-1200 words)
                         </h4>
                         <div style={{ fontSize: "14px", color: "#00796b", fontWeight: "500" }}>
                           {suggestions.blogPostTitle}
                         </div>
                         <div style={{ fontSize: "12px", color: "#00796b", marginTop: "8px" }}>
-                          → Will be published on your Shopify blog
+                          → Will be saved for your Shopify blog
                         </div>
                       </div>
                     </label>
@@ -853,10 +912,10 @@ export default function Optimize() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
             <div>
               <h1 style={{ fontSize: "28px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
-                ✨ Optimize
+                ✨ AIO Optimize
               </h1>
               <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
-                AI-powered suggestions to boost your product visibility
+                AI-powered suggestions to boost your store & product visibility
               </p>
             </div>
             <div
@@ -876,7 +935,7 @@ export default function Optimize() {
 
         <div style={{ background: "#fff3cd", padding: "16px", borderRadius: "8px", marginBottom: "24px", border: "1px solid #ffeaa7" }}>
           <p style={{ fontSize: "14px", color: "#856404", margin: 0 }}>
-            <strong>💡 How it works:</strong> Click "Get Suggestions" (1 credit) on any product. Review AI-generated optimizations (all checked by default) and uncheck what you don't want. Click "Apply Selected Changes" to update your Shopify store instantly!
+            <strong>💡 How it works:</strong> Click "Get Suggestions" (1 credit) on any product. Review AIO-generated optimizations (all checked by default) and uncheck what you don't want. Click "Apply Selected Changes" to update your Shopify store instantly!
           </p>
         </div>
 
@@ -918,7 +977,7 @@ export default function Optimize() {
                     </div>
                     {product.citationRate < 40 && (
                       <div style={{ fontSize: "13px", color: "#f44336", fontWeight: "500" }}>
-                        ⚠️ Low visibility - Optimization recommended
+                        ⚠️ Low visibility - AIO optimization recommended
                       </div>
                     )}
                   </div>
