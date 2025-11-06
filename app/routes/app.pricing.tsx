@@ -1,18 +1,18 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import { json } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
 import { useLoaderData, useFetcher, useNavigate } from "react-router";
-import { authenticate } from "~/shopify.server";
+import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "~/shopify.server";
 import { prisma } from "~/db.server";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AppHeader from "~/components/AppHeader";
 
-// Configuration des plans conformes Shopify Billing API
-const PLANS = {
+// Configuration des plans avec Shopify Billing API
+const BILLING_PLANS = {
   TRIAL: {
     id: "TRIAL",
     name: "Free Trial",
     price: 0,
-    interval: "one_time",
+    interval: "ONE_TIME",
     credits: 25,
     features: [
       "25 AI optimization credits",
@@ -30,11 +30,10 @@ const PLANS = {
     popular: false,
     cta: "Start Free Trial"
   },
-  STARTER: {
-    id: "STARTER",
+  STARTER_MONTHLY: {
+    id: "STARTER_MONTHLY",
     name: "Starter",
     price: 29,
-    priceAnnual: 290, // 2 months free
     interval: "EVERY_30_DAYS",
     credits: 100,
     features: [
@@ -52,13 +51,39 @@ const PLANS = {
     ],
     color: "#2196f3",
     popular: false,
-    cta: "Start Starter Plan"
+    cta: "Start Starter Plan",
+    trialDays: 7
   },
-  GROWTH: {
-    id: "GROWTH",
+  STARTER_ANNUAL: {
+    id: "STARTER_ANNUAL",
+    name: "Starter",
+    price: 290,
+    interval: "ANNUAL",
+    credits: 100,
+    features: [
+      "100 AI optimization credits/month",
+      "ChatGPT & Gemini analysis",
+      "Advanced citation reporting",
+      "Competitor tracking",
+      "Custom store domains",
+      "Priority email support",
+      "CSV export",
+      "🎁 2 months free"
+    ],
+    limitations: [
+      "No automated scanning",
+      "No API access"
+    ],
+    color: "#2196f3",
+    popular: false,
+    cta: "Start Starter Plan",
+    trialDays: 7,
+    savings: 58
+  },
+  GROWTH_MONTHLY: {
+    id: "GROWTH_MONTHLY",
     name: "Growth",
     price: 79,
-    priceAnnual: 790,
     interval: "EVERY_30_DAYS",
     credits: 300,
     features: [
@@ -76,13 +101,39 @@ const PLANS = {
     color: "#ff9800",
     popular: true,
     badge: "MOST POPULAR",
-    cta: "Start Growth Plan"
+    cta: "Start Growth Plan",
+    trialDays: 7
   },
-  PRO: {
-    id: "PRO",
+  GROWTH_ANNUAL: {
+    id: "GROWTH_ANNUAL",
+    name: "Growth",
+    price: 790,
+    interval: "ANNUAL",
+    credits: 300,
+    features: [
+      "300 AI optimization credits/month",
+      "Everything in Starter, plus:",
+      "Automated daily scanning",
+      "Bulk optimization",
+      "API access (1000 calls/month)",
+      "Advanced analytics dashboard",
+      "Slack notifications",
+      "Priority support with SLA",
+      "White-label reports",
+      "🎁 2 months free"
+    ],
+    limitations: [],
+    color: "#ff9800",
+    popular: true,
+    badge: "MOST POPULAR",
+    cta: "Start Growth Plan",
+    trialDays: 7,
+    savings: 158
+  },
+  PRO_MONTHLY: {
+    id: "PRO_MONTHLY",
     name: "Professional",
     price: 199,
-    priceAnnual: 1990,
     interval: "EVERY_30_DAYS",
     credits: 1000,
     features: [
@@ -99,40 +150,212 @@ const PLANS = {
     limitations: [],
     color: "#9c27b0",
     popular: false,
-    cta: "Start Pro Plan"
+    cta: "Start Pro Plan",
+    trialDays: 7
+  },
+  PRO_ANNUAL: {
+    id: "PRO_ANNUAL",
+    name: "Professional",
+    price: 1990,
+    interval: "ANNUAL",
+    credits: 1000,
+    features: [
+      "1,000 AI optimization credits/month",
+      "Everything in Growth, plus:",
+      "Unlimited API access",
+      "Custom AI training for your niche",
+      "Dedicated account manager",
+      "Custom integrations",
+      "Phone support",
+      "99.9% uptime SLA",
+      "Advanced security features",
+      "🎁 2 months free"
+    ],
+    limitations: [],
+    color: "#9c27b0",
+    popular: false,
+    cta: "Start Pro Plan",
+    trialDays: 7,
+    savings: 398
   }
 };
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  
-  // Get shop information
-  const shop = await prisma.shop.findFirst({
-    where: { shopifyDomain: session.shop },
-    select: {
-      id: true,
-      shopName: true,
-      shopifyDomain: true,
-      plan: true,
-      credits: true,
-      maxCredits: true,
+// GraphQL mutation pour créer une charge récurrente
+const CREATE_SUBSCRIPTION_MUTATION = `
+  mutation CreateSubscription(
+    $name: String!
+    $lineItems: [AppSubscriptionLineItemInput!]!
+    $returnUrl: URL!
+    $trialDays: Int
+  ) {
+    appSubscriptionCreate(
+      name: $name
+      lineItems: $lineItems
+      returnUrl: $returnUrl
+      trialDays: $trialDays
+      test: true
+    ) {
+      appSubscription {
+        id
+      }
+      confirmationUrl
+      userErrors {
+        field
+        message
+      }
     }
-  });
+  }
+`;
 
-  return json({
-    shop: shop || {
-      plan: "TRIAL",
-      credits: 25,
-      maxCredits: 25,
-      shopName: "Store",
-    },
-    confirmationUrl: null,
-  });
+// GraphQL mutation pour créer une charge unique (annual)
+const CREATE_PURCHASE_MUTATION = `
+  mutation CreatePurchase(
+    $name: String!
+    $price: MoneyInput!
+    $returnUrl: URL!
+    $test: Boolean
+  ) {
+    appPurchaseOneTimeCreate(
+      name: $name
+      price: $price
+      returnUrl: $returnUrl
+      test: $test
+    ) {
+      appPurchaseOneTime {
+        id
+      }
+      confirmationUrl
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+// GraphQL query pour vérifier les abonnements actifs
+const ACTIVE_SUBSCRIPTIONS_QUERY = `
+  query GetActiveSubscriptions {
+    currentAppInstallation {
+      activeSubscriptions {
+        id
+        name
+        status
+        lineItems {
+          id
+          plan {
+            pricingDetails {
+              ... on AppRecurringPricing {
+                price {
+                  amount
+                  currencyCode
+                }
+                interval
+              }
+            }
+          }
+        }
+        createdAt
+        trialDays
+        currentPeriodEnd
+      }
+      oneTimePurchases(first: 10, sortKey: CREATED_AT, reverse: true) {
+        edges {
+          node {
+            id
+            name
+            price {
+              amount
+              currencyCode
+            }
+            status
+            createdAt
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+  
+  try {
+    // Get current shop from database
+    const shop = await prisma.shop.findFirst({
+      where: { shopifyDomain: session.shop },
+      select: {
+        id: true,
+        shopName: true,
+        shopifyDomain: true,
+        plan: true,
+        credits: true,
+        maxCredits: true,
+        billingId: true,
+      }
+    });
+
+    // Get active subscriptions from Shopify
+    const response = await admin.graphql(ACTIVE_SUBSCRIPTIONS_QUERY);
+    const data = await response.json();
+    
+    const activeSubscriptions = data.data?.currentAppInstallation?.activeSubscriptions || [];
+    const oneTimePurchases = data.data?.currentAppInstallation?.oneTimePurchases?.edges || [];
+
+    // Check for confirmation URL in query params (after billing confirmation)
+    const url = new URL(request.url);
+    const charge_id = url.searchParams.get("charge_id");
+    
+    if (charge_id) {
+      // User confirmed the charge, update database
+      const planId = url.searchParams.get("plan_id");
+      if (planId && shop) {
+        const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
+        await prisma.shop.update({
+          where: { id: shop.id },
+          data: {
+            plan: planId,
+            credits: plan.credits,
+            maxCredits: plan.credits,
+            billingId: charge_id,
+          }
+        });
+        return redirect("/app/pricing?success=true");
+      }
+    }
+
+    return json({
+      shop: shop || {
+        plan: "TRIAL",
+        credits: 25,
+        maxCredits: 25,
+        shopName: "Store",
+      },
+      activeSubscriptions,
+      oneTimePurchases,
+      success: url.searchParams.get("success") === "true",
+      cancelled: url.searchParams.get("cancelled") === "true",
+    });
+  } catch (error) {
+    console.error("Error loading pricing:", error);
+    return json({
+      shop: {
+        plan: "TRIAL",
+        credits: 25,
+        maxCredits: 25,
+        shopName: "Store",
+      },
+      activeSubscriptions: [],
+      oneTimePurchases: [],
+      error: "Failed to load pricing information"
+    });
+  }
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
+  const action = formData.get("_action") as string;
   const planId = formData.get("planId") as string;
 
   try {
@@ -144,56 +367,173 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ error: "Shop not found" }, { status: 404 });
     }
 
-    // Don't process if trying to "upgrade" to current plan
-    if (shop.plan === planId) {
-      return json({ error: "Already on this plan" }, { status: 400 });
-    }
+    // Handle cancellation
+    if (action === "cancel") {
+      const subscriptionId = formData.get("subscriptionId") as string;
+      
+      const cancelMutation = `
+        mutation CancelSubscription($id: ID!) {
+          appSubscriptionCancel(id: $id) {
+            appSubscription {
+              id
+              status
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
 
-    // Handle trial plan (no billing required)
-    if (planId === "TRIAL") {
-      return json({ error: "Cannot downgrade to trial" }, { status: 400 });
-    }
+      const response = await admin.graphql(cancelMutation, {
+        variables: { id: subscriptionId }
+      });
 
-    const plan = PLANS[planId as keyof typeof PLANS];
-    if (!plan) {
-      return json({ error: "Invalid plan" }, { status: 400 });
-    }
-
-    // For now, just update the plan in the database
-    // In production, you would integrate with Shopify Billing API here
-    await prisma.shop.update({
-      where: { id: shop.id },
-      data: {
-        plan: planId,
-        credits: plan.credits,
-        maxCredits: plan.credits,
+      const result = await response.json();
+      
+      if (result.data?.appSubscriptionCancel?.userErrors?.length > 0) {
+        return json({ 
+          error: result.data.appSubscriptionCancel.userErrors[0].message 
+        }, { status: 400 });
       }
-    });
 
-    return json({ 
-      success: true,
-      message: `Successfully upgraded to ${plan.name} plan!`
-    });
+      // Update database to reflect cancellation
+      await prisma.shop.update({
+        where: { id: shop.id },
+        data: {
+          plan: "TRIAL",
+          credits: 25,
+          maxCredits: 25,
+          billingId: null,
+        }
+      });
+
+      return json({ success: true, message: "Subscription cancelled successfully" });
+    }
+
+    // Handle upgrade/downgrade
+    if (action === "upgrade") {
+      const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
+      if (!plan) {
+        return json({ error: "Invalid plan selected" }, { status: 400 });
+      }
+
+      // Don't process if trying to upgrade to current plan
+      if (shop.plan === planId) {
+        return json({ error: "Already on this plan" }, { status: 400 });
+      }
+
+      // Trial plan doesn't require billing
+      if (planId === "TRIAL") {
+        return json({ error: "Cannot downgrade to trial" }, { status: 400 });
+      }
+
+      const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?charge_id={CHARGE_ID}&plan_id=${planId}`;
+      
+      let confirmationUrl: string | null = null;
+
+      if (plan.interval === "ANNUAL") {
+        // Create one-time purchase for annual plans
+        const response = await admin.graphql(CREATE_PURCHASE_MUTATION, {
+          variables: {
+            name: `RankInAI ${plan.name} Annual Plan`,
+            price: {
+              amount: plan.price,
+              currencyCode: "EUR"
+            },
+            returnUrl,
+            test: process.env.NODE_ENV !== "production"
+          }
+        });
+
+        const result = await response.json();
+        
+        if (result.data?.appPurchaseOneTimeCreate?.userErrors?.length > 0) {
+          return json({ 
+            error: result.data.appPurchaseOneTimeCreate.userErrors[0].message 
+          }, { status: 400 });
+        }
+
+        confirmationUrl = result.data?.appPurchaseOneTimeCreate?.confirmationUrl;
+
+      } else {
+        // Create recurring subscription for monthly plans
+        const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
+          variables: {
+            name: `RankInAI ${plan.name} Plan`,
+            lineItems: [{
+              plan: {
+                appRecurringPricingDetails: {
+                  price: {
+                    amount: plan.price,
+                    currencyCode: "EUR"
+                  },
+                  interval: plan.interval
+                }
+              }
+            }],
+            returnUrl,
+            trialDays: plan.trialDays || 0
+          }
+        });
+
+        const result = await response.json();
+        
+        if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
+          return json({ 
+            error: result.data.appSubscriptionCreate.userErrors[0].message 
+          }, { status: 400 });
+        }
+
+        confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
+      }
+
+      if (!confirmationUrl) {
+        return json({ error: "Failed to create billing charge" }, { status: 500 });
+      }
+
+      // Return the confirmation URL for redirect
+      return json({ confirmationUrl });
+    }
+
+    return json({ error: "Invalid action" }, { status: 400 });
 
   } catch (error: any) {
-    console.error("Plan upgrade error:", error);
+    console.error("Billing error:", error);
     return json({ 
-      error: error.message || "Failed to upgrade plan" 
+      error: error.message || "Failed to process billing request" 
     }, { status: 500 });
   }
 };
 
 export default function Pricing() {
-  const { shop, confirmationUrl } = useLoaderData<typeof loader>();
+  const { shop, activeSubscriptions, oneTimePurchases, success, cancelled } = useLoaderData<typeof loader>();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const fetcher = useFetcher();
   const navigate = useNavigate();
 
-  // Redirect to billing confirmation if needed
-  if (confirmationUrl) {
-    window.top?.location.assign(confirmationUrl);
-  }
+  // Handle billing confirmation redirect
+  useEffect(() => {
+    if (fetcher.data?.confirmationUrl) {
+      // Redirect to Shopify billing confirmation page
+      if (window.top) {
+        window.top.location.href = fetcher.data.confirmationUrl;
+      } else {
+        window.location.href = fetcher.data.confirmationUrl;
+      }
+    }
+  }, [fetcher.data]);
+
+  // Show success message
+  useEffect(() => {
+    if (success) {
+      setTimeout(() => {
+        navigate("/app");
+      }, 3000);
+    }
+  }, [success, navigate]);
 
   const handleUpgrade = async (planId: string) => {
     if (shop.plan === planId) return;
@@ -201,24 +541,26 @@ export default function Pricing() {
     setIsLoading(planId);
     
     const formData = new FormData();
+    formData.append("_action", "upgrade");
     formData.append("planId", planId);
     
     fetcher.submit(formData, { method: "post" });
   };
 
-  // Show success message after upgrade
-  if (fetcher.data?.success) {
-    setTimeout(() => {
-      navigate("/app");
-    }, 2000);
-  }
-
-  // Calculate savings for annual billing
-  const calculateSavings = (monthlyPrice: number) => {
-    const annual = monthlyPrice * 10; // 2 months free
-    const regularAnnual = monthlyPrice * 12;
-    return Math.round(regularAnnual - annual);
+  const handleCancelSubscription = async (subscriptionId: string) => {
+    if (confirm("Are you sure you want to cancel your subscription? You will lose access to premium features.")) {
+      const formData = new FormData();
+      formData.append("_action", "cancel");
+      formData.append("subscriptionId", subscriptionId);
+      
+      fetcher.submit(formData, { method: "post" });
+    }
   };
+
+  // Get display plans based on billing period
+  const displayPlans = billingPeriod === "monthly" 
+    ? [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_MONTHLY, BILLING_PLANS.GROWTH_MONTHLY, BILLING_PLANS.PRO_MONTHLY]
+    : [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_ANNUAL, BILLING_PLANS.GROWTH_ANNUAL, BILLING_PLANS.PRO_ANNUAL];
 
   return (
     <div style={{ 
@@ -229,6 +571,37 @@ export default function Pricing() {
       <AppHeader />
       
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "40px 24px" }}>
+        {/* Success/Error Messages */}
+        {success && (
+          <div style={{
+            background: "#4caf50",
+            color: "white",
+            padding: "16px 24px",
+            borderRadius: "12px",
+            marginBottom: "32px",
+            textAlign: "center",
+            fontSize: "16px",
+            fontWeight: "600"
+          }}>
+            ✅ Plan upgraded successfully! Redirecting to dashboard...
+          </div>
+        )}
+
+        {cancelled && (
+          <div style={{
+            background: "#ff9800",
+            color: "white",
+            padding: "16px 24px",
+            borderRadius: "12px",
+            marginBottom: "32px",
+            textAlign: "center",
+            fontSize: "16px",
+            fontWeight: "600"
+          }}>
+            ⚠️ Billing was cancelled. No charges were made.
+          </div>
+        )}
+
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: "48px" }}>
           <h1 style={{ 
@@ -314,39 +687,42 @@ export default function Pricing() {
           </div>
         </div>
 
-        {/* Current Plan Alert */}
-        {shop.plan !== "TRIAL" && (
+        {/* Active Subscription Info */}
+        {activeSubscriptions.length > 0 && (
           <div style={{
             background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             color: "white",
-            padding: "16px 24px",
+            padding: "20px 24px",
             borderRadius: "12px",
-            marginBottom: "32px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center"
+            marginBottom: "32px"
           }}>
-            <div>
-              <strong style={{ fontSize: "16px" }}>Your Current Plan: {PLANS[shop.plan as keyof typeof PLANS]?.name}</strong>
-              <p style={{ margin: "4px 0 0 0", opacity: 0.9, fontSize: "14px" }}>
-                You have {shop.credits} of {shop.maxCredits} credits remaining this month
-              </p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>
+                  Active Subscription: {activeSubscriptions[0].name}
+                </h3>
+                <p style={{ margin: 0, opacity: 0.9, fontSize: "14px" }}>
+                  Status: {activeSubscriptions[0].status} | 
+                  Credits: {shop.credits}/{shop.maxCredits} | 
+                  Next billing: {new Date(activeSubscriptions[0].currentPeriodEnd).toLocaleDateString()}
+                </p>
+              </div>
+              <button
+                onClick={() => handleCancelSubscription(activeSubscriptions[0].id)}
+                style={{
+                  background: "rgba(255,255,255,0.2)",
+                  color: "white",
+                  border: "1px solid rgba(255,255,255,0.3)",
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  cursor: "pointer"
+                }}
+              >
+                Cancel Subscription
+              </button>
             </div>
-            <button
-              onClick={() => navigate("/app/settings")}
-              style={{
-                background: "rgba(255,255,255,0.2)",
-                color: "white",
-                border: "1px solid rgba(255,255,255,0.3)",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                fontSize: "14px",
-                fontWeight: "600",
-                cursor: "pointer"
-              }}
-            >
-              Manage Billing
-            </button>
           </div>
         )}
 
@@ -357,10 +733,10 @@ export default function Pricing() {
           gap: "24px",
           marginBottom: "48px"
         }}>
-          {Object.values(PLANS).map((plan) => {
+          {displayPlans.map((plan) => {
             const isCurrentPlan = shop.plan === plan.id;
-            const price = billingPeriod === "annual" && plan.priceAnnual 
-              ? plan.priceAnnual / 12 
+            const monthlyPrice = billingPeriod === "annual" && plan.interval === "ANNUAL"
+              ? Math.round(plan.price / 12)
               : plan.price;
             
             return (
@@ -411,19 +787,43 @@ export default function Pricing() {
                 {/* Price */}
                 <div style={{ marginBottom: "24px" }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-                    <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>
-                      {plan.price === 0 ? "Free" : `€${Math.round(price)}`}
-                    </span>
-                    {plan.price > 0 && (
-                      <span style={{ fontSize: "16px", color: "#6d7175" }}>
-                        /month
+                    {plan.price === 0 ? (
+                      <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>
+                        Free
                       </span>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>
+                          €{monthlyPrice}
+                        </span>
+                        <span style={{ fontSize: "16px", color: "#6d7175" }}>
+                          /month
+                        </span>
+                      </>
                     )}
                   </div>
                   
-                  {billingPeriod === "annual" && plan.priceAnnual && (
-                    <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>
-                      Save €{calculateSavings(plan.price)} per year
+                  {billingPeriod === "annual" && plan.interval === "ANNUAL" && (
+                    <>
+                      <div style={{ fontSize: "14px", color: "#6d7175", marginTop: "4px" }}>
+                        €{plan.price} billed annually
+                      </div>
+                      {plan.savings && (
+                        <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>
+                          Save €{plan.savings} per year
+                        </div>
+                      )}
+                    </>
+                  )}
+                  
+                  {plan.trialDays && plan.price > 0 && (
+                    <div style={{
+                      fontSize: "14px",
+                      color: "#ff9800",
+                      marginTop: "8px",
+                      fontWeight: "600"
+                    }}>
+                      🎁 {plan.trialDays}-day free trial
                     </div>
                   )}
                   
@@ -512,22 +912,49 @@ export default function Pricing() {
                       ? "Current Plan" 
                       : plan.cta}
                 </button>
-
-                {/* Trial info */}
-                {shop.plan === "TRIAL" && plan.id !== "TRIAL" && (
-                  <p style={{
-                    fontSize: "12px",
-                    color: "#4caf50",
-                    textAlign: "center",
-                    marginTop: "12px",
-                    margin: "12px 0 0 0"
-                  }}>
-                    🎁 7-day free trial included
-                  </p>
-                )}
               </div>
             );
           })}
+        </div>
+
+        {/* Enterprise CTA */}
+        <div style={{
+          background: "linear-gradient(135deg, #1a237e 0%, #311b92 100%)",
+          borderRadius: "16px",
+          padding: "48px",
+          textAlign: "center",
+          color: "white",
+          marginBottom: "48px"
+        }}>
+          <h2 style={{ fontSize: "28px", fontWeight: "700", margin: "0 0 16px 0" }}>
+            Need a Custom Solution?
+          </h2>
+          <p style={{ fontSize: "16px", opacity: 0.95, margin: "0 0 24px 0", maxWidth: "600px", marginLeft: "auto", marginRight: "auto" }}>
+            For large stores with over 10,000 products or specific enterprise needs, 
+            we offer custom plans with dedicated support and infrastructure.
+          </p>
+          <a
+            href="mailto:contact@rank-in-ai.com?subject=Enterprise%20Plan%20Inquiry"
+            style={{
+              display: "inline-block",
+              background: "white",
+              color: "#1a237e",
+              padding: "14px 32px",
+              borderRadius: "8px",
+              fontSize: "16px",
+              fontWeight: "600",
+              textDecoration: "none",
+              transition: "transform 0.2s ease"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-2px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            Contact Enterprise Sales
+          </a>
         </div>
 
         {/* Features Comparison */}
@@ -637,7 +1064,8 @@ export default function Pricing() {
             padding: "16px 24px",
             borderRadius: "8px",
             boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            zIndex: 1000
+            zIndex: 1000,
+            animation: "slideInUp 0.3s ease"
           }}>
             ❌ {fetcher.data.error}
           </div>
@@ -654,12 +1082,26 @@ export default function Pricing() {
             padding: "16px 24px",
             borderRadius: "8px",
             boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            zIndex: 1000
+            zIndex: 1000,
+            animation: "slideInUp 0.3s ease"
           }}>
             ✅ {fetcher.data.message}
           </div>
         )}
       </div>
+
+      <style>{`
+        @keyframes slideInUp {
+          from {
+            transform: translateY(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -245,7 +245,7 @@ export default function Help() {
             Our support team is here to help you succeed
           </p>
           <button
-            onClick={() => window.open("mailto:support@rankinai.com", "_blank")}
+            onClick={() => window.open("mailto:support@rank-in-ai.com", "_blank")}
             style={{
               background: "white",
               color: "#667eea",
