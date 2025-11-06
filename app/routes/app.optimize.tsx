@@ -18,7 +18,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   if (!shop) {
     return json({ 
-      shop: { credits: 0 },
+      shop: { credits: 0, maxCredits: 25, shopName: "" },
       products: [],
     });
   }
@@ -35,16 +35,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       chatgptRate: true,
       geminiRate: true,
       totalScans: true,
-      lastOptimizedAt: true, // 🆕 Ajout de la date d'optimisation
+      lastOptimizedAt: true,
     },
     orderBy: { citationRate: "asc" },
   });
 
   return json({
     shop: {
-      shopName: shop.shopName,
-      credits: shop.credits,
-      maxCredits: shop.maxCredits,
+      shopName: shop.shopName || "",
+      credits: shop.credits || 0,
+      maxCredits: shop.maxCredits || 25,
     },
     products,
   });
@@ -330,7 +330,7 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
             title: selectedOptimizations.title || product.title,
             description: selectedOptimizations.description || product.description,
             tags: selectedOptimizations.tags || product.tags,
-            lastOptimizedAt: new Date(), // 🆕 Save optimization date
+            lastOptimizedAt: new Date(),
           },
         });
       }
@@ -498,6 +498,7 @@ export default function Optimize() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "optimized" | "notOptimized">("all");
   const [sortBy, setSortBy] = useState<"citationRate" | "optimizationDate" | "title">("citationRate");
+  const [copySuccess, setCopySuccess] = useState(false);
   
   const fetcher = useFetcher();
 
@@ -610,6 +611,16 @@ export default function Optimize() {
     formData.append("shopDomain", shop.shopName);
     
     fetcher.submit(formData, { method: "post" });
+  };
+
+  const handleCopyBlogContent = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 3000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
   };
 
   const getScoreColor = (rate: number) => {
@@ -1002,12 +1013,9 @@ export default function Optimize() {
                     </div>
                     <div style={{ display: "flex", gap: "8px" }}>
                       <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(fetcher.data.blogPost.content);
-                          shopify.toast.show('✅ Blog post copied to clipboard!');
-                        }}
+                        onClick={() => handleCopyBlogContent(fetcher.data.blogPost.content)}
                         style={{
-                          background: "#009688",
+                          background: copySuccess ? "#4caf50" : "#009688",
                           color: "white",
                           border: "none",
                           padding: "8px 16px",
@@ -1017,7 +1025,7 @@ export default function Optimize() {
                           cursor: "pointer",
                         }}
                       >
-                        📋 Copy Content
+                        {copySuccess ? "✅ Copied!" : "📋 Copy Content"}
                       </button>
                       <a
                         href={`https://${fetcher.data.shopDomain}/admin/articles/new`}
