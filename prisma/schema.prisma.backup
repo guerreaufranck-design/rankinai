@@ -56,7 +56,6 @@ model Product {
   geminiRate     Int       @default(0)
   totalScans     Int       @default(0)
   lastScanAt     DateTime?
-  lastOptimizedAt DateTime?
   status         ProductStatus @default(ACTIVE)
   createdAt      DateTime  @default(now())
   Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
