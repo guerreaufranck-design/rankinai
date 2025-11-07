@@ -11,10 +11,451 @@ import AppHeader from "~/components/AppHeader";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-const MAJOR_COMPETITORS = [
-  'amazon', 'ebay', 'walmart', 'etsy', 'alibaba', 
-  'target', 'bestbuy', 'aliexpress', 'wayfair', 'homedepot'
-];
+// 🆕 ENHANCED INTELLIGENCE LAYER FOR DYNAMIC COMPETITOR DETECTION
+class AIResponseAnalyzer {
+  // Known e-commerce patterns to detect competitors
+  private static ecommercePatterns = [
+    /(?:available|found|sold|shop|buy)\s+(?:on|at|from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/g,
+    /([A-Z][a-z]+(?:\.[a-z]+)+)/g, // Detect domains
+    /(?:retailers?|stores?|shops?)\s+like\s+([A-Z][a-z]+(?:,?\s+[A-Z][a-z]+)*)/g,
+    /([A-Z][a-z]+)\s+(?:sells?|offers?|stocks?|carries)/g,
+    /(?:competitor|alternative|similar)\s+(?:sites?|stores?|shops?).*?([A-Z][a-z]+)/g,
+  ];
+
+  /**
+   * 🎯 DYNAMIC COMPETITOR EXTRACTION - Not hardcoded!
+   * Detects ANY competitor mentioned in AI response
+   */
+  static extractCompetitors(
+    response: string,
+    shopDomain: string,
+    shopName: string,
+    productTitle: string
+  ): {
+    competitors: string[];
+    competitorPositions: { [name: string]: number };
+    shopPosition: number;
+  } {
+    const responseLower = response.toLowerCase();
+    const competitors = new Set<string>();
+    const competitorPositions: { [name: string]: number } = {};
+    
+    // Extract potential competitor names using patterns
+    this.ecommercePatterns.forEach(pattern => {
+      const matches = response.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1]) {
+          const names = match[1].split(/,\s+|\s+and\s+/);
+          names.forEach(name => {
+            const cleanName = name.trim().toLowerCase();
+            // Filter out common words and the shop itself
+            if (
+              cleanName &&
+              cleanName.length > 2 &&
+              !cleanName.includes(shopDomain.toLowerCase()) &&
+              !cleanName.includes(shopName.toLowerCase()) &&
+              !cleanName.includes(productTitle.toLowerCase()) &&
+              !['the', 'this', 'that', 'these', 'those', 'online', 'store', 'shop', 'website'].includes(cleanName)
+            ) {
+              competitors.add(cleanName);
+              // Record position if not already recorded
+              if (!competitorPositions[cleanName]) {
+                const position = responseLower.indexOf(cleanName);
+                if (position >= 0) {
+                  competitorPositions[cleanName] = position;
+                }
+              }
+            }
+          });
+        }
+      }
+    });
+
+    // Check for specific domain mentions
+    const domainPattern = /(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+)\.(com|net|org|shop|store|co|io)/gi;
+    const domainMatches = response.matchAll(domainPattern);
+    for (const match of domainMatches) {
+      const domain = match[1].toLowerCase();
+      if (domain && !domain.includes(shopDomain.toLowerCase())) {
+        competitors.add(domain);
+        if (!competitorPositions[domain]) {
+          competitorPositions[domain] = responseLower.indexOf(domain);
+        }
+      }
+    }
+
+    // Find shop position
+    const shopPosition = Math.min(
+      responseLower.indexOf(shopDomain.toLowerCase()) >= 0 ? responseLower.indexOf(shopDomain.toLowerCase()) : Infinity,
+      responseLower.indexOf(shopName.toLowerCase()) >= 0 ? responseLower.indexOf(shopName.toLowerCase()) : Infinity
+    );
+
+    return {
+      competitors: Array.from(competitors),
+      competitorPositions,
+      shopPosition: shopPosition === Infinity ? -1 : shopPosition,
+    };
+  }
+
+  /**
+   * 🎯 EXTRACT KEYWORDS WITH CONTEXT
+   */
+  static extractKeywordsFromResponse(text: string): string[] {
+    const stopwords = new Set([
+      "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "to", "for", 
+      "of", "in", "on", "at", "by", "with", "from", "as", "this", "that", "it", 
+      "you", "be", "have", "has", "had", "can", "could", "will", "would", "should", 
+      "may", "might", "must", "shall", "do", "does", "did"
+    ]);
+
+    const words = text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !stopwords.has(w));
+    
+    // Count frequency
+    const frequency: { [key: string]: number } = {};
+    words.forEach(word => {
+      frequency[word] = (frequency[word] || 0) + 1;
+    });
+    
+    // Return top 15 most frequent words
+    return Object.entries(frequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([word]) => word);
+  }
+
+  /**
+   * 🎯 TOPIC COVERAGE ANALYSIS
+   */
+  static extractTopicsCovered(text: string): string[] {
+    const topicPatterns: { [key: string]: RegExp[] } = {
+      "warranty": [/warrant/i, /guarantee/i, /protect/i, /coverage/i],
+      "shipping": [/ship/i, /deliver/i, /arrival/i, /transit/i],
+      "materials": [/material/i, /leather/i, /plastic/i, /fabric/i, /metal/i, /wood/i],
+      "pricing": [/price/i, /cost/i, /afford/i, /expensive/i, /cheap/i, /value/i, /budget/i],
+      "reviews": [/review/i, /rating/i, /star/i, /customer/i, /feedback/i, /testimonial/i],
+      "returns": [/return/i, /refund/i, /exchange/i, /money\s+back/i],
+      "quality": [/quality/i, /durable/i, /premium/i, /reliable/i, /sturdy/i],
+      "customer-service": [/support/i, /service/i, /help/i, /assistance/i, /contact/i],
+      "eco-friendly": [/eco/i, /sustain/i, /green/i, /environment/i, /recycl/i],
+      "customization": [/custom/i, /personal/i, /tailor/i, /modify/i],
+      "availability": [/stock/i, /available/i, /sold out/i, /in stock/i],
+      "authenticity": [/authentic/i, /genuine/i, /original/i, /real/i],
+      "size-fit": [/size/i, /fit/i, /dimension/i, /measurement/i],
+      "color-options": [/color/i, /colour/i, /shade/i, /hue/i],
+      "brand-reputation": [/brand/i, /reputation/i, /trusted/i, /known/i],
+    };
+    
+    const found = new Set<string>();
+    const textLower = text.toLowerCase();
+    
+    for (const [topic, patterns] of Object.entries(topicPatterns)) {
+      if (patterns.some(pattern => pattern.test(textLower))) {
+        found.add(topic);
+      }
+    }
+    
+    return Array.from(found);
+  }
+
+  /**
+   * 🎯 MISSING TOPICS DETECTION
+   */
+  static findMissingTopics(productDescription: string, aiResponse: string): string[] {
+    const descTopics = this.extractTopicsCovered(productDescription);
+    const responseTopics = this.extractTopicsCovered(aiResponse);
+    
+    return descTopics.filter(t => !responseTopics.includes(t));
+  }
+
+  /**
+   * 🎯 FEATURE MENTION ANALYSIS
+   */
+  static analyzeFeatureMentions(
+    productDescription: string,
+    aiResponse: string
+  ): {
+    mentionedFeatures: string[];
+    ignoredFeatures: string[];
+  } {
+    // Extract potential features from product description
+    const featurePatterns = [
+      /(\w+)\s+(?:feature|capability|function)/gi,
+      /(?:includes?|features?|offers?|provides?)\s+(\w+(?:\s+\w+)?)/gi,
+      /(?:with|has)\s+(\w+(?:\s+\w+)?)/gi,
+    ];
+    
+    const productFeatures = new Set<string>();
+    featurePatterns.forEach(pattern => {
+      const matches = productDescription.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1]) {
+          productFeatures.add(match[1].toLowerCase());
+        }
+      }
+    });
+    
+    const responseLower = aiResponse.toLowerCase();
+    const mentionedFeatures: string[] = [];
+    const ignoredFeatures: string[] = [];
+    
+    productFeatures.forEach(feature => {
+      if (responseLower.includes(feature)) {
+        mentionedFeatures.push(feature);
+      } else {
+        ignoredFeatures.push(feature);
+      }
+    });
+    
+    return { mentionedFeatures, ignoredFeatures };
+  }
+
+  /**
+   * 🎯 SENTIMENT ANALYSIS
+   */
+  static calculateSentimentScore(text: string): number {
+    const sentimentWords = {
+      positive: [
+        { word: "excellent", score: 25 },
+        { word: "recommended", score: 30 },
+        { word: "best", score: 25 },
+        { word: "amazing", score: 25 },
+        { word: "great", score: 20 },
+        { word: "perfect", score: 25 },
+        { word: "outstanding", score: 30 },
+        { word: "superior", score: 25 },
+        { word: "exceptional", score: 30 },
+        { word: "fantastic", score: 25 },
+        { word: "premium", score: 20 },
+        { word: "quality", score: 15 },
+        { word: "reliable", score: 20 },
+        { word: "trusted", score: 20 },
+        { word: "popular", score: 15 },
+      ],
+      negative: [
+        { word: "poor", score: -25 },
+        { word: "bad", score: -25 },
+        { word: "avoid", score: -30 },
+        { word: "disappointing", score: -25 },
+        { word: "terrible", score: -30 },
+        { word: "worst", score: -30 },
+        { word: "mediocre", score: -20 },
+        { word: "cheap", score: -15 },
+        { word: "unreliable", score: -25 },
+        { word: "problematic", score: -20 },
+        { word: "inferior", score: -25 },
+        { word: "subpar", score: -20 },
+      ],
+    };
+    
+    const textLower = text.toLowerCase();
+    let score = 0;
+    
+    sentimentWords.positive.forEach(({ word, score: points }) => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      const matches = textLower.match(regex);
+      if (matches) {
+        score += points * matches.length;
+      }
+    });
+    
+    sentimentWords.negative.forEach(({ word, score: points }) => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      const matches = textLower.match(regex);
+      if (matches) {
+        score += points * matches.length;
+      }
+    });
+    
+    return Math.max(-100, Math.min(100, score));
+  }
+
+  /**
+   * 🎯 TERM PREFERENCE DETECTION
+   */
+  static detectPreferredTerms(
+    productDescription: string,
+    aiResponse: string
+  ): { [ourTerm: string]: string } {
+    const preferredTerms: { [ourTerm: string]: string } = {};
+    
+    // Common term variations to check
+    const termVariations = [
+      ["backpack", "rucksack", "pack", "bag"],
+      ["sneakers", "trainers", "shoes", "footwear"],
+      ["laptop", "notebook", "computer", "device"],
+      ["phone", "smartphone", "mobile", "device"],
+      ["jacket", "coat", "outerwear"],
+      ["sunglasses", "shades", "eyewear"],
+      ["watch", "timepiece", "wristwatch"],
+    ];
+    
+    const descLower = productDescription.toLowerCase();
+    const responseLower = aiResponse.toLowerCase();
+    
+    termVariations.forEach(variations => {
+      const ourTerm = variations.find(term => descLower.includes(term));
+      if (ourTerm) {
+        const aiTerm = variations.find(term => term !== ourTerm && responseLower.includes(term));
+        if (aiTerm) {
+          preferredTerms[ourTerm] = aiTerm;
+        }
+      }
+    });
+    
+    return preferredTerms;
+  }
+}
+
+/**
+ * 🎯 COMPREHENSIVE RESPONSE ANALYSIS
+ */
+function analyzeResponseWithIntelligence(
+  fullResponse: string,
+  productTitle: string,
+  shopDomain: string,
+  shopName: string,
+  productHandle: string,
+  productDescription: string
+) {
+  const responseLower = fullResponse.toLowerCase();
+  const productLower = productTitle.toLowerCase();
+  
+  // Basic detection
+  const isProductMentioned = responseLower.includes(productLower);
+  const isShopMentioned = 
+    responseLower.includes(shopDomain.toLowerCase()) ||
+    responseLower.includes(shopName.toLowerCase());
+  
+  // Citation analysis
+  const sentences = fullResponse.split(/[.!?]+/).filter(s => s.trim().length > 10);
+  let citationPosition = -1;
+  let citationSentence = null;
+  
+  for (let i = 0; i < sentences.length; i++) {
+    if (sentences[i].toLowerCase().includes(productLower) || 
+        sentences[i].toLowerCase().includes(shopName.toLowerCase())) {
+      citationPosition = i + 1;
+      citationSentence = sentences[i].trim();
+      break;
+    }
+  }
+  
+  // 🆕 DYNAMIC COMPETITOR ANALYSIS
+  const competitorAnalysis = AIResponseAnalyzer.extractCompetitors(
+    fullResponse,
+    shopDomain,
+    shopName,
+    productTitle
+  );
+  
+  const shopBeforeCompetitors = competitorAnalysis.shopPosition >= 0 && 
+    (Object.values(competitorAnalysis.competitorPositions).length === 0 ||
+     competitorAnalysis.shopPosition < Math.min(...Object.values(competitorAnalysis.competitorPositions)));
+  
+  // 🆕 ENHANCED CONTEXT EXTRACTION
+  const keywordsInResponse = AIResponseAnalyzer.extractKeywordsFromResponse(fullResponse);
+  const topicsCovered = AIResponseAnalyzer.extractTopicsCovered(fullResponse);
+  const topicsMissing = AIResponseAnalyzer.findMissingTopics(productDescription, fullResponse);
+  const sentimentScore = citationSentence 
+    ? AIResponseAnalyzer.calculateSentimentScore(citationSentence)
+    : AIResponseAnalyzer.calculateSentimentScore(fullResponse.substring(0, 500));
+  
+  // 🆕 FEATURE ANALYSIS
+  const featureAnalysis = AIResponseAnalyzer.analyzeFeatureMentions(productDescription, fullResponse);
+  const preferredTerms = AIResponseAnalyzer.detectPreferredTerms(productDescription, fullResponse);
+  
+  // Score calculation with intelligent weighting
+  let score = 0;
+  const breakdown: string[] = [];
+  
+  if (isProductMentioned) {
+    score += 20;
+    breakdown.push("✅ Product mentioned (+20)");
+  } else {
+    breakdown.push("❌ Product NOT mentioned (0)");
+  }
+  
+  if (isShopMentioned) {
+    score += 40;
+    breakdown.push("✅ Your shop mentioned (+40)");
+  } else {
+    breakdown.push("❌ Your shop NOT mentioned (0)");
+  }
+  
+  if (citationPosition > 0 && citationPosition <= 3) {
+    score += 20;
+    breakdown.push(`✅ Cited in top 3 (position ${citationPosition}) (+20)`);
+  } else if (citationPosition > 0 && citationPosition <= 5) {
+    score += 10;
+    breakdown.push(`⚠️ Cited in position ${citationPosition} (+10)`);
+  } else if (citationPosition > 0) {
+    score += 5;
+    breakdown.push(`⚠️ Cited but position ${citationPosition} (+5)`);
+  } else {
+    breakdown.push("❌ Not in top positions (0)");
+  }
+  
+  if (competitorAnalysis.competitors.length === 0) {
+    score += 10;
+    breakdown.push("✅ No competitors mentioned (+10)");
+  } else if (competitorAnalysis.competitors.length <= 2) {
+    score += 5;
+    breakdown.push(`⚠️ ${competitorAnalysis.competitors.length} competitors: ${competitorAnalysis.competitors.join(', ')} (+5)`);
+  } else {
+    breakdown.push(`❌ ${competitorAnalysis.competitors.length} competitors detected: ${competitorAnalysis.competitors.slice(0, 5).join(', ')}... (0)`);
+  }
+  
+  if (shopBeforeCompetitors) {
+    score += 10;
+    breakdown.push("✅ Your shop mentioned BEFORE competitors (+10)");
+  } else if (competitorAnalysis.competitors.length > 0 && isShopMentioned) {
+    breakdown.push("⚠️ Your shop mentioned AFTER competitors (0)");
+  }
+  
+  // 🆕 Additional intelligence scoring
+  if (sentimentScore > 50) {
+    score += 5;
+    breakdown.push("✅ Very positive sentiment (+5)");
+  } else if (sentimentScore < -20) {
+    score -= 5;
+    breakdown.push("❌ Negative sentiment (-5)");
+  }
+  
+  if (featureAnalysis.ignoredFeatures.length > 3) {
+    breakdown.push(`⚠️ ${featureAnalysis.ignoredFeatures.length} product features ignored`);
+  }
+  
+  if (topicsMissing.length > 2) {
+    breakdown.push(`⚠️ Missing important topics: ${topicsMissing.slice(0, 3).join(', ')}`);
+  }
+  
+  const finalScore = Math.max(0, Math.min(100, score));
+  
+  return {
+    // Core metrics
+    score: finalScore,
+    isProductMentioned,
+    isShopMentioned,
+    citationPosition,
+    citationSentence,
+    shopBeforeCompetitors,
+    breakdown: breakdown.join('\n'),
+    
+    // 🆕 ENHANCED INTELLIGENCE DATA
+    competitors: competitorAnalysis.competitors,
+    competitorPositions: competitorAnalysis.competitorPositions,
+    keywordsInResponse,
+    topicsCovered,
+    topicsMissing,
+    sentimentScore,
+    mentionedFeatures: featureAnalysis.mentionedFeatures,
+    ignoredFeatures: featureAnalysis.ignoredFeatures,
+    preferredTerms,
+  };
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -60,6 +501,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           competitors: true,
           confidence: true,
           createdAt: true,
+          // 🆕 Include enhanced fields
+          shopMentioned: true,
+          shopBeforeCompetitors: true,
+          topicsCovered: true,
+          topicsMissing: true,
+          sentimentScore: true,
         },
       });
 
@@ -80,105 +527,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     products: productsWithScans,
   });
 };
-
-function analyzeResponse(
-  fullResponse: string,
-  productTitle: string,
-  shopDomain: string,
-  shopName: string,
-  productHandle: string
-) {
-  const responseLower = fullResponse.toLowerCase();
-  const productLower = productTitle.toLowerCase();
-  
-  const isProductMentioned = responseLower.includes(productLower);
-  
-  const isShopMentioned = 
-    responseLower.includes(shopDomain.toLowerCase()) ||
-    responseLower.includes(shopName.toLowerCase()) ||
-    responseLower.includes(productHandle.toLowerCase());
-  
-  const sentences = fullResponse.split(/[.!?]+/).filter(s => s.trim().length > 10);
-  let citationPosition = -1;
-  let citationSentence = null;
-  
-  for (let i = 0; i < Math.min(5, sentences.length); i++) {
-    if (sentences[i].toLowerCase().includes(productLower)) {
-      citationPosition = i + 1;
-      citationSentence = sentences[i].trim();
-      break;
-    }
-  }
-  
-  const competitorsMentioned = MAJOR_COMPETITORS.filter(comp => 
-    responseLower.includes(comp)
-  );
-  
-  const shopPosition = responseLower.indexOf(shopDomain.toLowerCase());
-  const competitorPositions = competitorsMentioned.map(comp => ({
-    name: comp,
-    position: responseLower.indexOf(comp)
-  })).filter(c => c.position > -1);
-  
-  const firstCompetitorPosition = competitorPositions.length > 0 
-    ? Math.min(...competitorPositions.map(c => c.position))
-    : Infinity;
-  
-  const shopBeforeCompetitors = shopPosition > -1 && shopPosition < firstCompetitorPosition;
-  
-  let score = 0;
-  const breakdown: string[] = [];
-  
-  if (isProductMentioned) {
-    score += 20;
-    breakdown.push("✅ Product mentioned (+20)");
-  } else {
-    breakdown.push("❌ Product NOT mentioned (0)");
-  }
-  
-  if (isShopMentioned) {
-    score += 40;
-    breakdown.push("✅ Your shop mentioned (+40)");
-  } else {
-    breakdown.push("❌ Your shop NOT mentioned (0)");
-  }
-  
-  if (citationPosition > 0 && citationPosition <= 3) {
-    score += 20;
-    breakdown.push(`✅ Cited in top 3 (position ${citationPosition}) (+20)`);
-  } else if (citationPosition > 0) {
-    breakdown.push(`⚠️ Cited but position ${citationPosition} (0)`);
-  } else {
-    breakdown.push("❌ Not in top positions (0)");
-  }
-  
-  if (competitorsMentioned.length === 0) {
-    score += 10;
-    breakdown.push("✅ No competitors mentioned (+10)");
-  } else {
-    breakdown.push(`⚠️ ${competitorsMentioned.length} competitors: ${competitorsMentioned.join(', ')} (0)`);
-  }
-  
-  if (shopBeforeCompetitors) {
-    score += 10;
-    breakdown.push("✅ Your shop mentioned BEFORE competitors (+10)");
-  } else if (competitorsMentioned.length > 0 && isShopMentioned) {
-    breakdown.push("⚠️ Your shop mentioned AFTER competitors (0)");
-  }
-  
-  const finalScore = Math.min(100, score);
-  
-  return {
-    score: finalScore,
-    isProductMentioned,
-    isShopMentioned,
-    citationPosition,
-    citationSentence,
-    competitorsMentioned,
-    shopBeforeCompetitors,
-    breakdown: breakdown.join('\n'),
-  };
-}
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
@@ -276,7 +624,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
   }
 
-  // Handle product scan
+  // Handle product scan with enhanced intelligence
   try {
     const shop = await prisma.shop.findFirst({
       where: { shopifyDomain: session.shop },
@@ -327,21 +675,35 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`\n📄 Response (${fullResponse.length} chars):\n${fullResponse.substring(0, 300)}...`);
 
-    const analysis = analyzeResponse(
+    // 🆕 ENHANCED ANALYSIS WITH INTELLIGENCE
+    const analysis = analyzeResponseWithIntelligence(
       fullResponse,
       product.title,
       shop.shopifyDomain,
       shop.shopName,
-      product.handle
+      product.handle,
+      product.description || ""
     );
 
-    console.log(`\n📊 Analysis:`);
+    console.log(`\n📊 Enhanced Analysis:`);
     console.log(analysis.breakdown);
     console.log(`\n🎯 SCORE: ${analysis.score}/100`);
+    console.log(`\n🆕 INTELLIGENCE CONTEXT:`);
+    console.log(`Dynamic Competitors Detected: ${analysis.competitors.join(', ') || 'None'}`);
+    console.log(`Keywords: ${analysis.keywordsInResponse.slice(0, 10).join(', ')}`);
+    console.log(`Topics Covered: ${analysis.topicsCovered.join(', ')}`);
+    console.log(`Topics Missing: ${analysis.topicsMissing.join(', ')}`);
+    console.log(`Features Mentioned: ${analysis.mentionedFeatures.join(', ')}`);
+    console.log(`Features Ignored: ${analysis.ignoredFeatures.join(', ')}`);
+    console.log(`Sentiment: ${analysis.sentimentScore > 0 ? '😊 Positive' : analysis.sentimentScore < 0 ? '😔 Negative' : '😐 Neutral'} (${analysis.sentimentScore})`);
+    if (Object.keys(analysis.preferredTerms).length > 0) {
+      console.log(`AI Preferred Terms: ${JSON.stringify(analysis.preferredTerms)}`);
+    }
 
     const scanId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    await prisma.scan.create({
+    // 🆕 SAVE ENHANCED SCAN DATA WITH FULL INTELLIGENCE
+    const newScan = await prisma.scan.create({
       data: {
         id: scanId,
         shopId: shop.id,
@@ -351,14 +713,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         fullResponse,
         isCited: analysis.isShopMentioned,
         citation: analysis.citationSentence,
-        citationPosition: analysis.citationPosition,
-        competitors: analysis.competitorsMentioned,
+        citationPosition: analysis.citationPosition > 0 ? analysis.citationPosition : null,
         confidence: analysis.score / 100,
         creditsUsed: 1,
         scanDuration,
+        
+        // 🆕 ENHANCED INTELLIGENCE FIELDS
+        shopMentioned: analysis.isShopMentioned,
+        shopBeforeCompetitors: analysis.shopBeforeCompetitors,
+        competitors: analysis.competitors,
+        competitorPositions: analysis.competitorPositions,
+        keywordsInResponse: analysis.keywordsInResponse,
+        topicsCovered: analysis.topicsCovered,
+        topicsMissing: analysis.topicsMissing,
+        sentimentScore: analysis.sentimentScore,
+        mentionedFeatures: analysis.mentionedFeatures,
+        ignoredFeatures: analysis.ignoredFeatures,
+        preferredTerms: analysis.preferredTerms,
       },
     });
 
+    // Calculate platform-specific scores
     const platformScans = await prisma.scan.findMany({
       where: { productId: product.id, platform },
       select: { confidence: true },
@@ -397,6 +772,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ? Math.round(((chatgptRate * chatgptScans.length) + (geminiRate * geminiScans.length)) / totalScans)
       : 0;
 
+    // 🆕 LINK PRODUCT TO LATEST SCAN FOR CONTEXT
     await prisma.product.update({
       where: { id: product.id },
       data: {
@@ -405,6 +781,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         citationRate,
         totalScans: { increment: 1 },
         lastScanAt: new Date(),
+        lastScanId: newScan.id, // 🆕 Critical link for context flow
       },
     });
 
@@ -413,7 +790,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       data: { credits: { decrement: 1 } },
     });
 
-    console.log(`\n✅ Scan completed!`);
+    // 🆕 CREATE ALERT IF NEEDED
+    if (analysis.score < 20) {
+      await prisma.alert.create({
+        data: {
+          id: `alert_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          shopId: shop.id,
+          type: "CITATION_DROP",
+          severity: "CRITICAL",
+          title: `⚠️ ${product.title} not cited by ${platform}`,
+          message: `The product was not mentioned in ${platform}'s response. ${analysis.competitors.length > 0 ? `Competitors mentioned instead: ${analysis.competitors.slice(0, 3).join(', ')}` : 'Consider optimizing product description.'}`,
+          productId: product.id,
+          metadata: {
+            scanId: newScan.id,
+            competitors: analysis.competitors,
+            missingTopics: analysis.topicsMissing,
+          },
+        },
+      });
+    }
+
+    console.log(`\n✅ Scan completed with enhanced intelligence!`);
     console.log(`Platform Score: ${platformScore}%`);
     console.log(`Global Citation Rate: ${citationRate}%\n`);
 
@@ -423,6 +820,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       breakdown: analysis.breakdown,
       platformScore,
       citationRate,
+      // 🆕 Return intelligence data to frontend
+      intelligence: {
+        competitors: analysis.competitors,
+        topicsMissing: analysis.topicsMissing,
+        sentimentScore: analysis.sentimentScore,
+      },
     });
   } catch (error: any) {
     console.error("❌ Scan error:", error);
@@ -461,7 +864,7 @@ export default function Products() {
 
   const canScan = shop && shop.credits > 0;
 
-  const generateBreakdown = (scan: any) => {
+  const generateIntelligentBreakdown = (scan: any) => {
     if (!scan) return "No scan data available";
     
     const lines = [];
@@ -475,7 +878,7 @@ export default function Products() {
     
     const response = scan.fullResponse.toLowerCase();
     const isProductMentioned = scan.citation || response.includes("product");
-    const isShopMentioned = scan.isCited;
+    const isShopMentioned = scan.isCited || scan.shopMentioned;
     const position = scan.citationPosition;
     const competitors = scan.competitors || [];
     
@@ -502,7 +905,22 @@ export default function Products() {
     if (competitors.length === 0) {
       lines.push(`✅ No competitors mentioned (+10)`);
     } else {
-      lines.push(`⚠️ ${competitors.length} competitors: ${competitors.join(', ')} (0)`);
+      lines.push(`⚠️ ${competitors.length} competitors detected: ${competitors.slice(0, 5).join(', ')}... (0)`);
+    }
+    
+    // 🆕 Enhanced context if available
+    if (scan.topicsMissing && scan.topicsMissing.length > 0) {
+      lines.push(``);
+      lines.push(`📌 Topics Missing: ${scan.topicsMissing.join(', ')}`);
+    }
+    
+    if (scan.topicsCovered && scan.topicsCovered.length > 0) {
+      lines.push(`✅ Topics Covered: ${scan.topicsCovered.slice(0, 5).join(', ')}`);
+    }
+    
+    if (scan.sentimentScore) {
+      const sentiment = scan.sentimentScore > 0 ? "Positive 😊" : scan.sentimentScore < 0 ? "Negative 😔" : "Neutral 😐";
+      lines.push(`💭 Sentiment: ${sentiment} (${scan.sentimentScore})`);
     }
     
     return lines.join('\n');
@@ -533,7 +951,7 @@ export default function Products() {
               background: "white",
               borderRadius: "12px",
               padding: "32px",
-              maxWidth: "600px",
+              maxWidth: "700px",
               maxHeight: "80vh",
               overflow: "auto",
               boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
@@ -542,7 +960,7 @@ export default function Products() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
               <h2 style={{ fontSize: "24px", fontWeight: "600", margin: 0, color: "#202223" }}>
-                Scan Analysis
+                🎯 Intelligent Scan Analysis
               </h2>
               <button
                 onClick={() => setSelectedProduct(null)}
@@ -563,7 +981,7 @@ export default function Products() {
                 {selectedProduct.title}
               </h3>
               <p style={{ fontSize: "14px", color: "#6d7175", margin: 0 }}>
-                Last scan results
+                Last scan intelligence report
               </p>
             </div>
 
@@ -582,19 +1000,42 @@ export default function Products() {
                     fontFamily: 'Monaco, Consolas, "Courier New", monospace',
                   }}
                 >
-                  {generateBreakdown(selectedProduct.lastScan)}
+                  {generateIntelligentBreakdown(selectedProduct.lastScan)}
                 </pre>
 
                 <div style={{ marginTop: "24px", padding: "16px", background: "#e8f5e9", borderRadius: "8px" }}>
                   <p style={{ fontSize: "14px", color: "#2e7d32", margin: 0 }}>
-                    <strong>💡 Pro Tip:</strong> To improve your score, focus on SEO optimization and building your online presence. Products with higher visibility get recommended more by AI assistants.
+                    <strong>💡 Intelligent Insight:</strong> {
+                      selectedProduct.lastScan.topicsMissing && selectedProduct.lastScan.topicsMissing.length > 0
+                        ? `Add content about ${selectedProduct.lastScan.topicsMissing[0]} to improve visibility.`
+                        : selectedProduct.lastScan.competitors && selectedProduct.lastScan.competitors.length > 2
+                        ? "Focus on unique value propositions to differentiate from competitors."
+                        : "Consider adding customer reviews and trust signals to boost recommendations."
+                    }
                   </p>
                 </div>
+
+                {fetcher.data?.intelligence && (
+                  <div style={{ marginTop: "16px", padding: "16px", background: "#e3f2fd", borderRadius: "8px" }}>
+                    <h4 style={{ fontSize: "14px", fontWeight: "600", margin: "0 0 8px 0", color: "#1976d2" }}>
+                      🆕 Latest Intelligence Update:
+                    </h4>
+                    <ul style={{ fontSize: "13px", margin: 0, paddingLeft: "20px", color: "#1565c0" }}>
+                      {fetcher.data.intelligence.competitors?.length > 0 && (
+                        <li>New competitors detected: {fetcher.data.intelligence.competitors.join(', ')}</li>
+                      )}
+                      {fetcher.data.intelligence.topicsMissing?.length > 0 && (
+                        <li>Topics to add: {fetcher.data.intelligence.topicsMissing.join(', ')}</li>
+                      )}
+                      <li>Sentiment score: {fetcher.data.intelligence.sentimentScore}</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ textAlign: "center", padding: "40px 20px" }}>
                 <p style={{ fontSize: "16px", color: "#9e9e9e" }}>
-                  No scan data available yet. Run a scan to see analysis!
+                  No scan data available yet. Run a scan to see intelligent analysis!
                 </p>
               </div>
             )}
@@ -607,10 +1048,10 @@ export default function Products() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
             <div>
               <h1 style={{ fontSize: "28px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
-                📦 Products
+                📦 Products with Intelligence
               </h1>
               <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
-                {products.length} products • {shop?.credits || 0} credits remaining
+                {products.length} products • {shop?.credits || 0} credits • AI-powered competitor detection
               </p>
             </div>
             <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
@@ -733,6 +1174,11 @@ export default function Products() {
                         <div style={{ fontSize: "15px", fontWeight: "600", color: "#202223" }}>{product.title}</div>
                         <div style={{ fontSize: "13px", color: "#9e9e9e" }}>
                           {product.totalScans > 0 ? `Last: ${new Date(product.lastScanAt || "").toLocaleDateString()}` : "Never scanned"}
+                          {product.lastScan?.competitors && product.lastScan.competitors.length > 0 && (
+                            <span style={{ marginLeft: "8px", color: "#ff9800" }}>
+                              • {product.lastScan.competitors.length} competitors detected
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td style={{ padding: "16px", textAlign: "center" }}>
@@ -756,7 +1202,7 @@ export default function Products() {
                                 fontWeight: "500",
                               }}
                             >
-                              📊 View Analysis
+                              🎯 View Intelligence
                             </button>
                           )}
                         </div>

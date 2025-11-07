@@ -33,13 +33,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       geminiRate: true,
       totalScans: true,
       lastOptimizedAt: true,
+      lastScanAt: true,
       createdAt: true,
       tags: true,
     },
     orderBy: { citationRate: "desc" },
   });
 
-  // Récupérer les scans récents pour l'historique
+  // Récupérer TOUS les scans avec les nouvelles données enrichies
   const scans = await prisma.scan.findMany({
     where: { shopId: shop.id },
     select: {
@@ -47,27 +48,44 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       platform: true,
       isCited: true,
       confidence: true,
-      competitors: true,
       createdAt: true,
       productId: true,
+      // 🆕 NOUVELLES DONNÉES ENRICHIES
+      shopMentioned: true,
+      shopBeforeCompetitors: true,
+      competitors: true,
+      competitorPositions: true,
+      keywordsInResponse: true,
+      topicsCovered: true,
+      topicsMissing: true,
+      sentimentScore: true,
+      mentionedFeatures: true,
+      ignoredFeatures: true,
+      citationPosition: true,
     },
     orderBy: { createdAt: "desc" },
-    take: 100,
+    take: 200,
   });
 
-  // Récupérer l'historique des optimisations
+  // Récupérer l'historique des optimisations avec le nouveau schéma
   const optimizations = await prisma.optimization.findMany({
     where: { shopId: shop.id },
     select: {
       id: true,
       productId: true,
-      field: true,
-      oldValue: true,
-      newValue: true,
-      appliedAt: true,
+      status: true,
+      createdAt: true,
+      // 🆕 NOUVEAUX CHAMPS
+      originalTitle: true,
+      newTitle: true,
+      originalDesc: true,
+      newDescription: true,
+      scanContext: true,
+      reasoning: true,
+      improvements: true,
     },
-    orderBy: { appliedAt: "desc" },
-    take: 50,
+    orderBy: { createdAt: "desc" },
+    take: 100,
   });
 
   return json({
@@ -86,15 +104,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function Analyze() {
   const { products, scans, optimizations, shop } = useLoaderData<typeof loader>();
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "all">("30d");
-  const [selectedMetric, setSelectedMetric] = useState<"citations" | "optimizations" | "roi">("citations");
 
-  // Fonction sécurisée pour filtrer par période
+  // Fonction de filtrage par période
   const filterByTimeRange = (date: string | null | undefined) => {
-    if (!date) return timeRange === "all"; // Si pas de date et "all" sélectionné, inclure
+    if (!date) return timeRange === "all";
     
     try {
       const d = new Date(date);
-      if (isNaN(d.getTime())) return false; // Date invalide
+      if (isNaN(d.getTime())) return false;
       
       const now = new Date();
       const diff = now.getTime() - d.getTime();
@@ -108,12 +125,14 @@ export default function Analyze() {
     }
   };
 
-  // Calculs des métriques clés avec gestion des erreurs
+  // 🆕 ANALYSE ENRICHIE AVEC TOUTES LES NOUVELLES DONNÉES
   const metrics = useMemo(() => {
+    const recentScans = scans.filter(s => filterByTimeRange(s.createdAt));
+    
+    // Produits optimisés vs non optimisés
     const optimizedProducts = products.filter(p => p.lastOptimizedAt);
     const nonOptimizedProducts = products.filter(p => !p.lastOptimizedAt);
     
-    // Calculs sécurisés des moyennes
     const avgOptimizedScore = optimizedProducts.length > 0
       ? optimizedProducts.reduce((sum, p) => sum + (p.citationRate || 0), 0) / optimizedProducts.length
       : 0;
@@ -124,20 +143,9 @@ export default function Analyze() {
 
     const improvement = avgOptimizedScore - avgNonOptimizedScore;
 
-    // Calcul du ROI estimé
-    const estimatedROI = optimizedProducts.length > 0
-      ? (improvement / 100) * optimizedProducts.length * 100
-      : 0;
-
-    // Tendances sur la période sélectionnée
-    const recentScans = scans.filter(s => filterByTimeRange(s.createdAt));
-    const citationTrend = recentScans.length > 0
-      ? (recentScans.filter(s => s.isCited).length / recentScans.length) * 100
-      : 0;
-
-    // Analyse des concurrents
+    // 🆕 ANALYSE DES COMPÉTITEURS (dynamique, pas hardcodé)
     const competitorAnalysis = scans.reduce((acc, scan) => {
-      if (scan.competitors && Array.isArray(scan.competitors) && scan.competitors.length > 0) {
+      if (scan.competitors && Array.isArray(scan.competitors)) {
         scan.competitors.forEach((comp: any) => {
           if (typeof comp === 'string' && comp.trim()) {
             acc[comp] = (acc[comp] || 0) + 1;
@@ -149,29 +157,99 @@ export default function Analyze() {
 
     const topCompetitors = Object.entries(competitorAnalysis)
       .sort(([, a], [, b]) => b - a)
+      .slice(0, 10);
+
+    // 🆕 ANALYSE DES TOPICS MANQUANTS (les plus fréquents)
+    const missingTopicsAnalysis = scans.reduce((acc, scan) => {
+      if (scan.topicsMissing && Array.isArray(scan.topicsMissing)) {
+        scan.topicsMissing.forEach((topic: any) => {
+          if (typeof topic === 'string') {
+            acc[topic] = (acc[topic] || 0) + 1;
+          }
+        });
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    const topMissingTopics = Object.entries(missingTopicsAnalysis)
+      .sort(([, a], [, b]) => b - a)
       .slice(0, 5);
+
+    // 🆕 ANALYSE DU SENTIMENT
+    const sentimentScans = scans.filter(s => s.sentimentScore !== null && s.sentimentScore !== undefined);
+    const avgSentiment = sentimentScans.length > 0
+      ? sentimentScans.reduce((sum, s) => sum + (s.sentimentScore || 0), 0) / sentimentScans.length
+      : 0;
+
+    const positiveSentiment = sentimentScans.filter(s => (s.sentimentScore || 0) > 0).length;
+    const negativeSentiment = sentimentScans.filter(s => (s.sentimentScore || 0) < 0).length;
+
+    // 🆕 ANALYSE DE LA POSITION DES CITATIONS
+    const citationsWithPosition = scans.filter(s => s.citationPosition && s.citationPosition > 0);
+    const avgPosition = citationsWithPosition.length > 0
+      ? citationsWithPosition.reduce((sum, s) => sum + (s.citationPosition || 0), 0) / citationsWithPosition.length
+      : 0;
+
+    const top3Citations = citationsWithPosition.filter(s => (s.citationPosition || 999) <= 3).length;
+    const top5Citations = citationsWithPosition.filter(s => (s.citationPosition || 999) <= 5).length;
+
+    // 🆕 SHOP MENTIONS ANALYSIS
+    const shopMentioned = scans.filter(s => s.shopMentioned).length;
+    const shopBeforeCompetitors = scans.filter(s => s.shopBeforeCompetitors).length;
+    const shopMentionRate = scans.length > 0 ? (shopMentioned / scans.length) * 100 : 0;
+
+    // Taux de citation global
+    const citationTrend = recentScans.length > 0
+      ? (recentScans.filter(s => s.isCited || s.shopMentioned).length / recentScans.length) * 100
+      : 0;
+
+    // Performance par plateforme
+    const chatgptScans = scans.filter(s => s.platform === "CHATGPT");
+    const geminiScans = scans.filter(s => s.platform === "GEMINI");
+
+    const chatgptCitationRate = chatgptScans.length > 0
+      ? (chatgptScans.filter(s => s.isCited || s.shopMentioned).length / chatgptScans.length) * 100
+      : 0;
+
+    const geminiCitationRate = geminiScans.length > 0
+      ? (geminiScans.filter(s => s.isCited || s.shopMentioned).length / geminiScans.length) * 100
+      : 0;
+
+    // ROI estimé basé sur l'amélioration
+    const estimatedROI = optimizedProducts.length > 0
+      ? (improvement / 100) * optimizedProducts.length * 150 // €150 valeur moyenne par produit optimisé
+      : 0;
 
     // Produits nécessitant une attention
     const needsAttention = products
-      .filter(p => (p.citationRate || 0) < 30 && !p.lastOptimizedAt)
+      .filter(p => (p.citationRate || 0) < 30)
+      .sort((a, b) => (a.citationRate || 0) - (b.citationRate || 0))
       .slice(0, 5);
 
-    // Meilleurs performers
+    // Top performers
     const topPerformers = products
-      .filter(p => p.lastOptimizedAt)
+      .filter(p => (p.citationRate || 0) >= 70)
       .sort((a, b) => (b.citationRate || 0) - (a.citationRate || 0))
       .slice(0, 5);
 
-    // Calcul du taux d'optimisation par plateforme
-    const chatgptPerformance = products.length > 0
-      ? products.reduce((sum, p) => sum + (p.chatgptRate || 0), 0) / products.length
-      : 0;
-    
-    const geminiPerformance = products.length > 0
-      ? products.reduce((sum, p) => sum + (p.geminiRate || 0), 0) / products.length
-      : 0;
+    // 🆕 FEATURES LES PLUS IGNORÉES
+    const ignoredFeaturesAnalysis = scans.reduce((acc, scan) => {
+      if (scan.ignoredFeatures && Array.isArray(scan.ignoredFeatures)) {
+        scan.ignoredFeatures.forEach((feature: any) => {
+          if (typeof feature === 'string') {
+            acc[feature] = (acc[feature] || 0) + 1;
+          }
+        });
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    const topIgnoredFeatures = Object.entries(ignoredFeaturesAnalysis)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5);
 
     return {
+      // Métriques de base
       optimizedProducts: optimizedProducts.length,
       nonOptimizedProducts: nonOptimizedProducts.length,
       avgOptimizedScore,
@@ -179,17 +257,35 @@ export default function Analyze() {
       improvement,
       estimatedROI,
       citationTrend,
+      
+      // 🆕 MÉTRIQUES ENRICHIES
       topCompetitors,
+      topMissingTopics,
+      avgSentiment,
+      positiveSentiment,
+      negativeSentiment,
+      avgPosition,
+      top3Citations,
+      top5Citations,
+      shopMentioned,
+      shopMentionRate,
+      shopBeforeCompetitors,
+      chatgptCitationRate,
+      geminiCitationRate,
+      topIgnoredFeatures,
+      
+      // Listes
       needsAttention,
       topPerformers,
+      
+      // Stats globales
       totalScans: scans.length,
-      successfulCitations: scans.filter(s => s.isCited).length,
-      chatgptPerformance,
-      geminiPerformance,
+      successfulCitations: scans.filter(s => s.isCited || s.shopMentioned).length,
+      totalOptimizations: optimizations.length,
     };
-  }, [products, scans, timeRange]);
+  }, [products, scans, optimizations, timeRange]);
 
-  // Graphique de tendance avec gestion des dates
+  // Graphique de tendance sur 7 jours
   const trendData = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const date = new Date();
@@ -209,10 +305,10 @@ export default function Analyze() {
       
       return {
         date,
-        citations: dayScans.filter(s => s.isCited).length,
+        citations: dayScans.filter(s => s.isCited || s.shopMentioned).length,
         total: dayScans.length,
         rate: dayScans.length > 0 
-          ? Math.round((dayScans.filter(s => s.isCited).length / dayScans.length) * 100)
+          ? Math.round((dayScans.filter(s => s.isCited || s.shopMentioned).length / dayScans.length) * 100)
           : 0,
       };
     });
@@ -224,10 +320,12 @@ export default function Analyze() {
     return "#f44336";
   };
 
-  const getImprovementColor = (improvement: number) => {
-    if (improvement > 0) return "#4caf50";
-    if (improvement === 0) return "#ff9800";
-    return "#f44336";
+  const getSentimentEmoji = (score: number) => {
+    if (score > 30) return "😊";
+    if (score > 0) return "🙂";
+    if (score === 0) return "😐";
+    if (score > -30) return "😕";
+    return "😔";
   };
 
   const formatDate = (date: string | null | undefined) => {
@@ -248,10 +346,10 @@ export default function Analyze() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
             <div>
               <h1 style={{ fontSize: "28px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
-                📊 Analytics Dashboard
+                📊 Advanced Analytics Dashboard
               </h1>
               <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
-                Optimization impact & performance insights
+                AI-powered insights with competitor & sentiment analysis
               </p>
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -277,7 +375,7 @@ export default function Analyze() {
           </div>
         </div>
 
-        {/* Impact des Optimisations */}
+        {/* 🆕 HERO STATS - Impact des Optimisations */}
         <div style={{ 
           background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
           borderRadius: "16px", 
@@ -289,19 +387,12 @@ export default function Analyze() {
           <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 24px 0", opacity: 0.9 }}>
             🚀 Optimization Impact Analysis
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "24px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "24px" }}>
             <div>
               <div style={{ fontSize: "14px", opacity: 0.8, marginBottom: "8px" }}>Optimized Products</div>
               <div style={{ fontSize: "36px", fontWeight: "700" }}>{metrics.optimizedProducts}</div>
               <div style={{ fontSize: "13px", opacity: 0.8 }}>
-                Avg Score: {Math.round(metrics.avgOptimizedScore)}%
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "14px", opacity: 0.8, marginBottom: "8px" }}>Non-Optimized</div>
-              <div style={{ fontSize: "36px", fontWeight: "700" }}>{metrics.nonOptimizedProducts}</div>
-              <div style={{ fontSize: "13px", opacity: 0.8 }}>
-                Avg Score: {Math.round(metrics.avgNonOptimizedScore)}%
+                Avg: {Math.round(metrics.avgOptimizedScore)}%
               </div>
             </div>
             <div>
@@ -310,7 +401,16 @@ export default function Analyze() {
                 {metrics.improvement > 0 ? "+" : ""}{Math.round(metrics.improvement)}%
               </div>
               <div style={{ fontSize: "13px", opacity: 0.8 }}>
-                After optimization
+                vs non-optimized
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "14px", opacity: 0.8, marginBottom: "8px" }}>Shop Mention Rate</div>
+              <div style={{ fontSize: "36px", fontWeight: "700" }}>
+                {Math.round(metrics.shopMentionRate)}%
+              </div>
+              <div style={{ fontSize: "13px", opacity: 0.8 }}>
+                {metrics.shopMentioned} mentions
               </div>
             </div>
             <div>
@@ -332,80 +432,80 @@ export default function Analyze() {
               borderRadius: "8px" 
             }}>
               <p style={{ margin: 0, fontSize: "14px" }}>
-                💡 <strong>Key Insight:</strong> Your optimized products perform {Math.round(metrics.improvement)}% better than non-optimized ones. 
-                {metrics.nonOptimizedProducts > 0 && ` Optimizing your remaining ${metrics.nonOptimizedProducts} products could increase overall performance by ${Math.round((metrics.improvement * metrics.nonOptimizedProducts) / Math.max(products.length, 1))}%.`}
+                💡 <strong>Key Insight:</strong> Your optimized products perform {Math.round(metrics.improvement)}% better! 
+                {metrics.nonOptimizedProducts > 0 && ` Optimizing the remaining ${metrics.nonOptimizedProducts} products could boost overall performance by ${Math.round((metrics.improvement * metrics.nonOptimizedProducts) / Math.max(products.length, 1))}%.`}
               </p>
             </div>
           )}
         </div>
 
-        {/* Métriques principales */}
+        {/* 🆕 MÉTRIQUES PRINCIPALES ENRICHIES */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px", marginBottom: "32px" }}>
           <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>📈 Citation Trend</div>
+            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>📈 Citation Rate</div>
             <div style={{ fontSize: "28px", fontWeight: "700", color: getScoreColor(metrics.citationTrend) }}>
               {Math.round(metrics.citationTrend)}%
             </div>
             <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
-              Last {timeRange === "7d" ? "7 days" : timeRange === "30d" ? "30 days" : "all time"}
+              {metrics.successfulCitations}/{metrics.totalScans} successful
             </div>
           </div>
 
           <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>✅ Success Rate</div>
+            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>🎯 Avg Position</div>
+            <div style={{ fontSize: "28px", fontWeight: "700", color: metrics.avgPosition <= 3 ? "#4caf50" : "#ff9800" }}>
+              #{metrics.avgPosition > 0 ? Math.round(metrics.avgPosition) : "N/A"}
+            </div>
+            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
+              {metrics.top3Citations} in top 3
+            </div>
+          </div>
+
+          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>💭 Sentiment</div>
+            <div style={{ fontSize: "28px", fontWeight: "700", color: metrics.avgSentiment > 0 ? "#4caf50" : metrics.avgSentiment < 0 ? "#f44336" : "#ff9800" }}>
+              {getSentimentEmoji(metrics.avgSentiment)} {Math.round(metrics.avgSentiment)}
+            </div>
+            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
+              {metrics.positiveSentiment} positive, {metrics.negativeSentiment} negative
+            </div>
+          </div>
+
+          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>🤖 ChatGPT</div>
+            <div style={{ fontSize: "28px", fontWeight: "700", color: getScoreColor(metrics.chatgptCitationRate) }}>
+              {Math.round(metrics.chatgptCitationRate)}%
+            </div>
+            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
+              Citation rate
+            </div>
+          </div>
+
+          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>✨ Gemini</div>
+            <div style={{ fontSize: "28px", fontWeight: "700", color: getScoreColor(metrics.geminiCitationRate) }}>
+              {Math.round(metrics.geminiCitationRate)}%
+            </div>
+            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
+              Citation rate
+            </div>
+          </div>
+
+          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>🏆 Before Competitors</div>
             <div style={{ fontSize: "28px", fontWeight: "700", color: "#4caf50" }}>
-              {metrics.totalScans > 0 ? Math.round((metrics.successfulCitations / metrics.totalScans) * 100) : 0}%
+              {metrics.shopBeforeCompetitors}
             </div>
             <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
-              {metrics.successfulCitations}/{metrics.totalScans} citations
-            </div>
-          </div>
-
-          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>💳 Credits Used</div>
-            <div style={{ fontSize: "28px", fontWeight: "700", color: "#2196f3" }}>
-              {metrics.optimizedProducts}
-            </div>
-            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
-              {shop?.credits || 0} remaining
-            </div>
-          </div>
-
-          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>🎯 Optimization Rate</div>
-            <div style={{ fontSize: "28px", fontWeight: "700", color: getImprovementColor(metrics.improvement) }}>
-              {products.length > 0 ? Math.round((metrics.optimizedProducts / products.length) * 100) : 0}%
-            </div>
-            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
-              Products optimized
-            </div>
-          </div>
-
-          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>🤖 ChatGPT Perf</div>
-            <div style={{ fontSize: "28px", fontWeight: "700", color: "#1976d2" }}>
-              {Math.round(metrics.chatgptPerformance)}%
-            </div>
-            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
-              Average rate
-            </div>
-          </div>
-
-          <div style={{ background: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <div style={{ fontSize: "13px", color: "#6d7175", marginBottom: "8px" }}>💎 Gemini Perf</div>
-            <div style={{ fontSize: "28px", fontWeight: "700", color: "#388e3c" }}>
-              {Math.round(metrics.geminiPerformance)}%
-            </div>
-            <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "4px" }}>
-              Average rate
+              Ahead of competition
             </div>
           </div>
         </div>
 
-        {/* Graphique de tendance */}
+        {/* 🆕 GRAPHIQUE DE TENDANCE */}
         <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", marginBottom: "32px" }}>
           <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 24px 0", color: "#202223" }}>
-            📈 Citation Rate Trend (Last 7 Days)
+            📈 7-Day Citation Trend
           </h2>
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", height: "200px", paddingBottom: "20px" }}>
             {trendData.map((day, index) => (
@@ -447,27 +547,146 @@ export default function Analyze() {
           </div>
         </div>
 
+        {/* 🆕 ANALYSE DES COMPÉTITEURS + TOPICS MANQUANTS */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "32px" }}>
+          {/* Compétiteurs détectés dynamiquement */}
+          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 16px 0", color: "#202223" }}>
+              🏢 Top Competitors Detected
+            </h2>
+            <p style={{ fontSize: "13px", color: "#6d7175", marginBottom: "16px" }}>
+              AI assistants mention these instead of your store
+            </p>
+            {metrics.topCompetitors.length === 0 ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#9e9e9e" }}>
+                🎉 No competitors detected yet!
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {metrics.topCompetitors.map(([name, count], index) => (
+                  <div 
+                    key={name}
+                    style={{ 
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "12px", 
+                      background: index === 0 ? "#ffebee" : "#f5f5f5", 
+                      borderRadius: "8px",
+                      border: index === 0 ? "2px solid #f44336" : "1px solid #e0e0e0"
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: "600", color: "#202223" }}>
+                        {index + 1}. {name}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "2px" }}>
+                        Mentioned {count} times
+                      </div>
+                    </div>
+                    {index === 0 && (
+                      <div style={{ fontSize: "20px" }}>⚠️</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Topics manquants les plus fréquents */}
+          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 16px 0", color: "#202223" }}>
+              📌 Most Missing Topics
+            </h2>
+            <p style={{ fontSize: "13px", color: "#6d7175", marginBottom: "16px" }}>
+              Add these to improve AI recommendations
+            </p>
+            {metrics.topMissingTopics.length === 0 ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#9e9e9e" }}>
+                ✅ All topics covered!
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {metrics.topMissingTopics.map(([topic, count]) => (
+                  <div 
+                    key={topic}
+                    style={{ 
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "12px", 
+                      background: "#fff3e0", 
+                      borderRadius: "8px",
+                      border: "1px solid #ffb74d"
+                    }}
+                  >
+                    <div style={{ fontSize: "14px", fontWeight: "600", color: "#202223" }}>
+                      {topic.replace(/-/g, ' ')}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6d7175" }}>
+                      Missing in {count} scans
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 🆕 FEATURES IGNORÉES + PRODUITS À ATTENTION */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "32px" }}>
+          {/* Features les plus ignorées */}
+          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 16px 0", color: "#202223" }}>
+              ⚠️ Most Ignored Features
+            </h2>
+            <p style={{ fontSize: "13px", color: "#6d7175", marginBottom: "16px" }}>
+              Product features AIs don't mention
+            </p>
+            {metrics.topIgnoredFeatures.length === 0 ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#9e9e9e" }}>
+                ✅ All features mentioned!
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {metrics.topIgnoredFeatures.map(([feature, count]) => (
+                  <div 
+                    key={feature}
+                    style={{ 
+                      padding: "10px 12px", 
+                      background: "#fafafa", 
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      color: "#202223"
+                    }}
+                  >
+                    <strong>{feature}</strong> <span style={{ color: "#6d7175" }}>({count}x)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Produits nécessitant une attention */}
           <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 24px 0", color: "#202223" }}>
-              ⚠️ Needs Optimization
+            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 16px 0", color: "#202223" }}>
+              🚨 Needs Immediate Attention
             </h2>
             {metrics.needsAttention.length === 0 ? (
-              <p style={{ fontSize: "14px", color: "#9e9e9e", margin: 0 }}>
-                All low-performing products have been optimized! 🎉
+              <p style={{ fontSize: "14px", color: "#9e9e9e", margin: 0, padding: "32px", textAlign: "center" }}>
+                🎉 All products performing well!
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {metrics.needsAttention.map(product => (
                   <div key={product.id} style={{ padding: "12px", background: "#fff3e0", borderRadius: "8px", borderLeft: "4px solid #ff9800" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontSize: "14px", fontWeight: "600", color: "#202223", marginBottom: "4px" }}>
-                          {product.title}
+                          {product.title.substring(0, 50)}{product.title.length > 50 ? "..." : ""}
                         </div>
                         <div style={{ fontSize: "12px", color: "#6d7175" }}>
-                          Current score: {product.citationRate || 0}%
+                          Score: {product.citationRate || 0}% • {product.totalScans || 0} scans
                         </div>
                       </div>
                       <Link 
@@ -480,47 +699,12 @@ export default function Analyze() {
                           fontSize: "12px",
                           fontWeight: "600",
                           textDecoration: "none",
+                          whiteSpace: "nowrap",
+                          marginLeft: "12px"
                         }}
                       >
-                        Optimize
+                        Fix Now
                       </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Top performers */}
-          <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-            <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 24px 0", color: "#202223" }}>
-              🏆 Top Performers
-            </h2>
-            {metrics.topPerformers.length === 0 ? (
-              <p style={{ fontSize: "14px", color: "#9e9e9e", margin: 0 }}>
-                Optimize products to see top performers
-              </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {metrics.topPerformers.map((product, index) => (
-                  <div key={product.id} style={{ padding: "12px", background: "#e8f5e9", borderRadius: "8px", borderLeft: "4px solid #4caf50" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{ fontSize: "20px" }}>
-                          {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: "14px", fontWeight: "600", color: "#202223", marginBottom: "4px" }}>
-                            {product.title}
-                          </div>
-                          <div style={{ fontSize: "12px", color: "#6d7175" }}>
-                            Optimized {formatDate(product.lastOptimizedAt)}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: "20px", fontWeight: "700", color: getScoreColor(product.citationRate || 0) }}>
-                        {product.citationRate || 0}%
-                      </div>
                     </div>
                   </div>
                 ))}
@@ -529,86 +713,90 @@ export default function Analyze() {
           </div>
         </div>
 
-        {/* Analyse des concurrents */}
-        {metrics.topCompetitors.length > 0 && (
+        {/* 🆕 TOP PERFORMERS */}
+        {metrics.topPerformers.length > 0 && (
           <div style={{ background: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", marginBottom: "32px" }}>
             <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 24px 0", color: "#202223" }}>
-              🏢 Competitor Mentions
+              🏆 Top Performing Products
             </h2>
-            <p style={{ fontSize: "14px", color: "#6d7175", marginBottom: "16px" }}>
-              These competitors are being mentioned instead of your store:
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-              {metrics.topCompetitors.map(([name, count]) => (
-                <div 
-                  key={name}
-                  style={{ 
-                    padding: "12px 20px", 
-                    background: "#ffebee", 
-                    borderRadius: "8px",
-                    border: "1px solid #ffcdd2"
-                  }}
-                >
-                  <div style={{ fontSize: "14px", fontWeight: "600", color: "#c62828", marginBottom: "4px" }}>
-                    {name}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#6d7175" }}>
-                    {count} mentions
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "16px" }}>
+              {metrics.topPerformers.map((product, index) => (
+                <div key={product.id} style={{ padding: "16px", background: "#e8f5e9", borderRadius: "8px", border: "2px solid #4caf50" }}>
+                  <div style={{ display: "flex", alignItems: "start", gap: "12px" }}>
+                    <div style={{ fontSize: "28px" }}>
+                      {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "🏅"}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "14px", fontWeight: "600", color: "#202223", marginBottom: "8px" }}>
+                        {product.title}
+                      </div>
+                      <div style={{ display: "flex", gap: "16px", fontSize: "12px", color: "#6d7175" }}>
+                        <div>Score: <strong style={{ color: "#4caf50" }}>{product.citationRate}%</strong></div>
+                        <div>ChatGPT: {product.chatgptRate}%</div>
+                        <div>Gemini: {product.geminiRate}%</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-            <div style={{ 
-              marginTop: "16px", 
-              padding: "12px", 
-              background: "#fff3e0", 
-              borderRadius: "8px",
-              fontSize: "13px",
-              color: "#856404"
-            }}>
-              💡 <strong>Tip:</strong> Optimize products frequently mentioned with competitors to reclaim this traffic.
-            </div>
           </div>
         )}
 
-        {/* Recommandations */}
+        {/* 🆕 RECOMMANDATIONS INTELLIGENTES */}
         <div style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", borderRadius: "12px", padding: "24px", color: "white" }}>
           <h2 style={{ fontSize: "20px", fontWeight: "600", margin: "0 0 16px 0" }}>
-            💡 Actionable Insights
+            💡 AI-Powered Recommendations
           </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {metrics.nonOptimizedProducts > 0 && (
-              <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
-                <strong>Optimization Opportunity:</strong> You have {metrics.nonOptimizedProducts} products not yet optimized. 
-                Based on current performance, optimizing them could increase your overall citation rate by {Math.round((metrics.improvement * metrics.nonOptimizedProducts) / Math.max(products.length, 1))}%.
-              </div>
-            )}
-            
-            {metrics.citationTrend < 50 && (
-              <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
-                <strong>Performance Alert:</strong> Your citation rate is below 50%. 
-                Focus on optimizing products with the lowest scores first for maximum impact.
-              </div>
-            )}
-            
             {metrics.topCompetitors.length > 0 && (
               <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
-                <strong>Competitive Threat:</strong> {metrics.topCompetitors[0][0]} is mentioned {metrics.topCompetitors[0][1]} times. 
-                Ensure your optimizations emphasize your store name and unique value proposition.
+                <strong>⚠️ Competitive Threat:</strong> {metrics.topCompetitors[0][0]} appears {metrics.topCompetitors[0][1]}x in recommendations. 
+                Emphasize your unique value proposition and ensure product descriptions mention your store name.
+              </div>
+            )}
+            
+            {metrics.topMissingTopics.length > 0 && (
+              <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
+                <strong>📝 Content Gap:</strong> Add "{metrics.topMissingTopics[0][0].replace(/-/g, ' ')}" information to {metrics.topMissingTopics[0][1]} products. 
+                This topic is frequently requested by AI assistants.
+              </div>
+            )}
+            
+            {metrics.avgSentiment < 0 && (
+              <div style={{ padding: "12px", background: "rgba(255,100,100,0.3)", borderRadius: "8px" }}>
+                <strong>😔 Sentiment Alert:</strong> Average sentiment is negative ({Math.round(metrics.avgSentiment)}). 
+                Review product descriptions for clarity and add positive customer testimonials.
               </div>
             )}
 
             {metrics.improvement > 20 && (
-              <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
-                <strong>Success Story:</strong> Your optimizations are showing excellent results with {Math.round(metrics.improvement)}% improvement! 
-                Continue optimizing remaining products to maximize this success.
+              <div style={{ padding: "12px", background: "rgba(76,175,80,0.3)", borderRadius: "8px" }}>
+                <strong>🎉 Success Story:</strong> Optimizations show {Math.round(metrics.improvement)}% improvement! 
+                Continue optimizing the remaining {metrics.nonOptimizedProducts} products for maximum impact.
               </div>
             )}
 
-            {shop?.credits && shop.credits < 10 && metrics.nonOptimizedProducts > shop.credits && (
-              <div style={{ padding: "12px", background: "rgba(255,100,100,0.3)", borderRadius: "8px" }}>
-                <strong>Credits Alert:</strong> You have {shop.credits} credits remaining but {metrics.nonOptimizedProducts} products to optimize. 
-                Consider upgrading your plan to optimize all products.
+            {metrics.avgPosition > 5 && metrics.citationTrend > 0 && (
+              <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
+                <strong>🎯 Position Opportunity:</strong> You're cited but average position is #{Math.round(metrics.avgPosition)}. 
+                Add more trust signals (reviews, certifications) to rank higher.
+              </div>
+            )}
+
+            {metrics.shopMentionRate < 50 && (
+              <div style={{ padding: "12px", background: "rgba(255,255,255,0.2)", borderRadius: "8px" }}>
+                <strong>🏪 Branding Alert:</strong> Your shop is only mentioned {Math.round(metrics.shopMentionRate)}% of the time. 
+                Include your shop name naturally in product titles and descriptions.
+              </div>
+            )}
+
+            {shop?.credits && shop.credits < 10 && metrics.nonOptimizedProducts > 0 && (
+              <div style={{ padding: "12px", background: "rgba(255,193,7,0.3)", borderRadius: "8px" }}>
+                <strong>💳 Credits Low:</strong> Only {shop.credits} credits left for {metrics.nonOptimizedProducts} products. 
+                <Link to="/app" style={{ color: "white", textDecoration: "underline", marginLeft: "4px" }}>
+                  Upgrade plan
+                </Link> to complete optimization.
               </div>
             )}
           </div>

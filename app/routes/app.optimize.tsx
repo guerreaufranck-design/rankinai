@@ -78,8 +78,90 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ error: "No credits remaining" }, { status: 402 });
       }
 
-      // ⭐⭐⭐ PROMPT ULTRA-RENFORCÉ POUR LA LANGUE ⭐⭐⭐
-      const prompt = `🌍🌍🌍 CRITICAL LANGUAGE INSTRUCTION - READ 3 TIMES! 🌍🌍🌍
+      // ============================================
+      // 🆕 RÉCUPÉRER L'HISTORIQUE DES SCANS
+      // ============================================
+      const historicalScans = await prisma.scan.findMany({
+        where: { productId: product.id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+
+      // 🆕 RÉCUPÉRER LE DERNIER SCAN ENRICHI
+      const lastScan = await prisma.scan.findFirst({
+        where: { productId: product.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          platform: true,
+          isCited: true,
+          shopMentioned: true,
+          shopBeforeCompetitors: true,
+          competitors: true,
+          topicsCovered: true,
+          topicsMissing: true,
+          keywordsInResponse: true,
+          sentimentScore: true,
+          createdAt: true,
+        },
+      });
+
+      // Calculer les tendances temporelles
+      const now = new Date();
+      const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+      const scansLastMonth = historicalScans.filter(s => new Date(s.createdAt) >= oneMonthAgo);
+      const scansPreviousMonth = historicalScans.filter(
+        s => new Date(s.createdAt) >= twoMonthsAgo && new Date(s.createdAt) < oneMonthAgo
+      );
+
+      const citationRateLastMonth = scansLastMonth.length > 0
+        ? (scansLastMonth.filter(s => s.isCited).length / scansLastMonth.length) * 100
+        : 0;
+      const citationRatePreviousMonth = scansPreviousMonth.length > 0
+        ? (scansPreviousMonth.filter(s => s.isCited).length / scansPreviousMonth.length) * 100
+        : 0;
+
+      const trend = citationRateLastMonth - citationRatePreviousMonth;
+      const trendDirection = trend > 0 ? "INCREASING 📈" : trend < 0 ? "DECLINING 📉" : "STABLE ➡️";
+
+      // Extraire l'évolution des concurrents
+      const allCompetitors = historicalScans
+        .flatMap(s => s.competitors || [])
+        .filter((c, i, arr) => arr.indexOf(c) === i);
+
+      const recentCompetitors = scansLastMonth
+        .flatMap(s => s.competitors || [])
+        .filter((c, i, arr) => arr.indexOf(c) === i);
+
+      const oldCompetitors = scansPreviousMonth
+        .flatMap(s => s.competitors || [])
+        .filter((c, i, arr) => arr.indexOf(c) === i);
+
+      const newCompetitors = recentCompetitors.filter(c => !oldCompetitors.includes(c));
+
+      // Analyser les positions de citation
+      const recentPositions = scansLastMonth
+        .filter(s => s.isCited && s.citationPosition != null)
+        .map(s => s.citationPosition);
+
+      const avgPosition = recentPositions.length > 0
+        ? Math.round(recentPositions.reduce((a, b) => a! + b!, 0)! / recentPositions.length)
+        : null;
+
+      // Évolution ChatGPT vs Gemini
+      const chatgptScansRecent = scansLastMonth.filter(s => s.platform === 'CHATGPT');
+      const geminiScansRecent = scansLastMonth.filter(s => s.platform === 'GEMINI');
+
+      const chatgptRateRecent = chatgptScansRecent.length > 0
+        ? (chatgptScansRecent.filter(s => s.isCited).length / chatgptScansRecent.length) * 100
+        : 0;
+      const geminiRateRecent = geminiScansRecent.length > 0
+        ? (geminiScansRecent.filter(s => s.isCited).length / geminiScansRecent.length) * 100
+        : 0;
+
+      // ⭐⭐⭐ PROMPT DE BASE (INCHANGÉ) ⭐⭐⭐
+      let prompt = `🌍🌍🌍 CRITICAL LANGUAGE INSTRUCTION - READ 3 TIMES! 🌍🌍🌍
 
 STEP 1 - LANGUAGE DETECTION (MANDATORY):
 ======================================
@@ -114,13 +196,63 @@ You are an AIO (AI Optimization) and e-commerce expert. Your PRIMARY GOAL is to 
 3. Emphasize the STORE'S VALUE PROPOSITION, not just the product features
 4. Make it clear WHY users should choose THIS store over competitors or direct manufacturers
 
-Context:
+📊 PRODUCT CURRENT STATE:
+========================
 - Store Name: ${shop.shopName}
 - Store Domain: ${session.shop}
 - Product Title: ${product.title}
 - Current Description: ${product.description || "No description"}
 - Current Tags: ${product.tags || "No tags"}
 - Current AI Citation Rate: ${product.citationRate}%
+- Total Scans: ${product.totalScans}
+- Last Optimized: ${product.lastOptimizedAt ? new Date(product.lastOptimizedAt).toLocaleDateString() : "Never"}
+
+📈 PERFORMANCE EVOLUTION & TRENDS:
+===================================
+${historicalScans.length > 0 ? `
+- Historical Data Available: ${historicalScans.length} scans analyzed
+- Citation Rate Last Month: ${citationRateLastMonth.toFixed(1)}%
+- Citation Rate Previous Month: ${citationRatePreviousMonth.toFixed(1)}%
+- Trend: ${trendDirection} (${trend > 0 ? '+' : ''}${trend.toFixed(1)}% change)
+${avgPosition ? `- Average Citation Position: #${avgPosition}` : '- Citation Position: Not ranked recently'}
+
+🔍 AI PLATFORM PERFORMANCE:
+- ChatGPT Recent Rate: ${chatgptRateRecent.toFixed(1)}% (${chatgptScansRecent.length} scans)
+- Gemini Recent Rate: ${geminiRateRecent.toFixed(1)}% (${geminiScansRecent.length} scans)
+${chatgptRateRecent > geminiRateRecent 
+  ? '→ ChatGPT performs BETTER - optimize more for ChatGPT patterns' 
+  : geminiRateRecent > chatgptRateRecent 
+    ? '→ Gemini performs BETTER - optimize more for Gemini patterns'
+    : '→ Both platforms perform similarly'}
+
+🏆 COMPETITIVE LANDSCAPE EVOLUTION:
+- All Competitors Detected: ${allCompetitors.length > 0 ? allCompetitors.join(', ') : 'None detected'}
+- Recent Competitors (last month): ${recentCompetitors.length > 0 ? recentCompetitors.join(', ') : 'None'}
+- Previous Competitors: ${oldCompetitors.length > 0 ? oldCompetitors.join(', ') : 'None'}
+${newCompetitors.length > 0 ? `- ⚠️ NEW THREATS: ${newCompetitors.join(', ')} - COUNTER-ATTACK NEEDED!` : '- No new competitors detected'}
+
+💡 STRATEGIC CONTEXT:
+${trend < -5 ? '⚠️ CRITICAL: Performance is DECLINING - aggressive re-optimization needed!' : ''}
+${trend > 5 ? '✅ POSITIVE: Performance is IMPROVING - reinforce what works!' : ''}
+${newCompetitors.length > 0 ? `⚠️ New competitors "${newCompetitors.join(', ')}" are emerging - differentiation is critical!` : ''}
+${avgPosition && avgPosition > 3 ? '⚠️ Product is cited but in lower positions - improve ranking with stronger value props!' : ''}
+${chatgptRateRecent === 0 && historicalScans.length > 10 ? '⚠️ ChatGPT NEVER cites this product - major optimization needed!' : ''}
+${geminiRateRecent === 0 && historicalScans.length > 10 ? '⚠️ Gemini NEVER cites this product - major optimization needed!' : ''}
+` : `
+- No historical data yet - this is the FIRST optimization
+- Focus on establishing strong foundation for AI citations
+- Emphasize unique value propositions and store benefits
+`}
+
+🎯 YOUR OPTIMIZATION MISSION:
+==============================
+Based on the EVOLUTION data above, provide recommendations that:
+
+1. **Address declining trends**: If performance is dropping, identify what's missing
+2. **Counter new competitors**: If new brands appeared, create differentiation strategies
+3. **Optimize for best-performing platform**: Focus more on ChatGPT or Gemini based on data
+4. **Improve citation position**: If cited but low-ranked, enhance value propositions
+5. **Adapt to algorithm changes**: Recommendations should reflect current AI behavior patterns
 
 OPTIMIZATION STRATEGY:
 1. **Identify business model**: Look at the product title and description. Is this store SELLING products, RENTING/LEASING them, offering SERVICES, or SUBSCRIPTIONS? Adapt all content accordingly.
@@ -135,10 +267,12 @@ OPTIMIZATION STRATEGY:
    - Middle: Product features + how the STORE enhances the experience
    - End: Call-to-action mentioning "${shop.shopName}" + differentiator
    - Include phrases naturally mentioning the store
+   ${newCompetitors.length > 0 ? `- COUNTER new competitors (${newCompetitors.join(', ')}) by emphasizing what ${shop.shopName} offers that they don't` : ''}
 
 4. **FAQ must include** (IN DETECTED LANGUAGE):
    - Question about where to buy/rent/get this → Answer with store name + unique benefit
    - Question about why choose ${shop.shopName} → Answer highlighting differentiators
+   ${newCompetitors.length > 0 ? `- Question comparing ${shop.shopName} vs ${newCompetitors[0]} → Answer with clear advantages` : ''}
    - All Q&A in the SAME LANGUAGE as the product
 
 5. **Tags** (IN DETECTED LANGUAGE):
@@ -149,6 +283,8 @@ WHY THIS MATTERS:
 - Without store mention = 0 traffic, product goes to manufacturer or Amazon
 - With store + service mention = direct traffic to YOUR website
 - Store-centric optimization = AI assistants cite "${shop.shopName}" when recommending
+${trend < 0 ? '- Current declining trend MUST be reversed with better optimization' : ''}
+${newCompetitors.length > 0 ? `- New competitors are stealing visibility - differentiation is CRITICAL` : ''}
 
 FINAL LANGUAGE CHECK BEFORE RESPONDING:
 =========================================
@@ -162,13 +298,51 @@ FINAL LANGUAGE CHECK BEFORE RESPONDING:
 ✓ Is "blogPostTitle" in [DETECTED LANGUAGE]? YES/NO
 ✓ Is "reasoning" in [DETECTED LANGUAGE]? YES/NO
 
-If ANY answer is NO, START OVER and fix the language!
+If ANY answer is NO, START OVER and fix the language!`;
+
+      // ⭐⭐⭐ 🆕 ENHANCEMENT LAYER: ADD SCAN CONTEXT IF AVAILABLE ⭐⭐⭐
+      if (lastScan) {
+        console.log(`\n🆕 ENHANCING PROMPT WITH LAST SCAN CONTEXT (${lastScan.platform})`);
+        console.log(`Scan date: ${new Date(lastScan.createdAt).toLocaleString()}`);
+        
+        prompt += `
+
+========================================
+🎯 ADDITIONAL CONTEXT FROM RECENT SCAN (${lastScan.platform})
+========================================
+These findings are from a REAL AI scan performed on ${new Date(lastScan.createdAt).toLocaleDateString()} - use them to strengthen suggestions:
+
+SCAN RESULTS:
+- Product was ${lastScan.isCited ? "âœ… CITED" : "âŒ NOT cited"}
+- Shop name was ${lastScan.shopMentioned ? "âœ… MENTIONED" : "âŒ NOT mentioned"}
+${lastScan.shopMentioned ? `  â†' Shop appeared ${lastScan.shopBeforeCompetitors ? "BEFORE âœ…" : "AFTER âŒ"} competitors` : ""}
+${lastScan.competitors && lastScan.competitors.length > 0 ? `- Competitors cited: ${lastScan.competitors.join(", ")}` : '- No competitors mentioned'}
+${lastScan.topicsCovered && lastScan.topicsCovered.length > 0 ? `- Topics covered in response: ${lastScan.topicsCovered.join(", ")}` : ''}
+${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `- Topics MISSING (should be added): ${lastScan.topicsMissing.join(", ")}` : '- All topics covered'}
+${lastScan.keywordsInResponse && lastScan.keywordsInResponse.length > 0 ? `- Keywords ${lastScan.platform} used: ${lastScan.keywordsInResponse.join(", ")}` : ''}
+- AI sentiment about product: ${lastScan.sentimentScore && lastScan.sentimentScore > 0 ? "Positive âœ…" : lastScan.sentimentScore && lastScan.sentimentScore < 0 ? "Negative âŒ" : "Neutral"}
+
+OPTIMIZATION FOCUS:
+${lastScan.isCited ? "âœ… Product WAS cited - focus on making it RANK HIGHER" : "âŒ Product NOT cited - PRIORITY: make it discoverable"}
+${lastScan.shopMentioned ? `âœ… Shop WAS mentioned - FOCUS: ensure it appears BEFORE competitors` : "âŒ Shop NOT mentioned - PRIORITY: add shop name naturally"}
+${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `âŒ Missing topics: ${lastScan.topicsMissing.join(", ")} - ADD these to descriptions` : "âœ… All important topics covered"}
+
+FOR EACH SUGGESTION:
+- Reference how it addresses the scan findings
+${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `- Example: "This title includes '${lastScan.topicsMissing[0]}' because the scan showed it was missing"` : ''}
+- Ensure suggestions fix what scan revealed as problems
+- Use keywords that ${lastScan.platform} responded well to: ${lastScan.keywordsInResponse && lastScan.keywordsInResponse.length > 0 ? lastScan.keywordsInResponse.slice(0, 5).join(', ') : 'N/A'}
+========================================
+`;
+      }
+
+      prompt += `
 
 Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, no markdown):
 {
   "detectedLanguage": "The language detected from the product (e.g., 'Spanish', 'French', 'English')",
   "title": "Optimized title in THE DETECTED LANGUAGE - Include business model and store name when natural",
-  "description": "AIO-optimized description (300-500 words) IN THE DETECTED LANGUAGE - MUST mention '${shop.shopName}' at least 2-3 times naturally + emphasize business model + unique value proposition",
+  "description": "AIO-optimized description (300-500 words) IN THE DETECTED LANGUAGE - MUST mention '${shop.shopName}' at least 2-3 times naturally + emphasize business model + unique value proposition ${newCompetitors.length > 0 ? `+ differentiate from ${newCompetitors.join(', ')}` : ''}${lastScan && lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? ` + include missing topics: ${lastScan.topicsMissing.join(', ')}` : ''}",
   "tags": ["tag1 in detected language", "tag2 in detected language", "tag3 in detected language", "tag4 in detected language", "tag5 in detected language"],
   "faq": [
     {"question": "Question IN THE DETECTED LANGUAGE", "answer": "Answer IN THE DETECTED LANGUAGE mentioning ${shop.shopName}"},
@@ -178,7 +352,7 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
   "metaTitle": "SEO meta title IN THE DETECTED LANGUAGE (max 60 chars) - Include product + ${shop.shopName}",
   "metaDescription": "SEO meta description IN THE DETECTED LANGUAGE (max 160 chars) - Include product + ${shop.shopName} + CTA",
   "blogPostTitle": "Blog post title IN THE DETECTED LANGUAGE mentioning product and ${shop.shopName}",
-  "reasoning": "Explanation IN THE DETECTED LANGUAGE about how these changes will make AI assistants cite both product and ${shop.shopName}"
+  "reasoning": "Explanation IN THE DETECTED LANGUAGE about how these changes will make AI assistants cite both product and ${shop.shopName}${trend !== 0 ? `, addressing the ${trendDirection.toLowerCase()} trend` : ''}${newCompetitors.length > 0 ? `, and differentiating from new competitors like ${newCompetitors[0]}` : ''}${lastScan ? `, and fixing issues found in the ${lastScan.platform} scan` : ''}"
 }
 
 🌍 REMINDER: 100% of your response must be in the SAME LANGUAGE as the product! 🌍`;
@@ -214,11 +388,16 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
 
       console.log(`✨ AIO suggestions generated for ${product.title} - 1 credit used`);
       console.log(`🌍 Detected language: ${suggestions.detectedLanguage}`);
+      console.log(`📊 Historical context: ${historicalScans.length} scans, trend: ${trendDirection}`);
+      if (lastScan) {
+        console.log(`🆕 Enhanced with scan context from ${lastScan.platform}`);
+      }
 
       return json({ 
         success: true, 
         suggestions,
         creditsRemaining: shop.credits - 1,
+        scanContextUsed: !!lastScan,
       });
     }
 
@@ -706,6 +885,11 @@ export default function Optimize() {
                 <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
                   Generating AIO-powered suggestions with Gemini 2.0 Flash... (1 credit)
                 </p>
+                {fetcher.data?.scanContextUsed && (
+                  <p style={{ fontSize: "14px", color: "#2196f3", marginTop: "8px" }}>
+                    🆕 Enhanced with recent scan context
+                  </p>
+                )}
               </div>
             ) : suggestions ? (
               <div>
@@ -721,6 +905,11 @@ export default function Optimize() {
                     <span style={{ fontSize: "14px", color: "#0288d1", fontWeight: "600" }}>
                       🌍 Detected Language: {suggestions.detectedLanguage}
                     </span>
+                    {fetcher.data?.scanContextUsed && (
+                      <span style={{ fontSize: "13px", color: "#0288d1", marginLeft: "12px" }}>
+                        | 🆕 Enhanced with scan data
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -1174,7 +1363,8 @@ export default function Optimize() {
 
         <div style={{ background: "#fff3cd", padding: "16px", borderRadius: "8px", marginBottom: "24px", border: "1px solid #ffeaa7" }}>
           <p style={{ fontSize: "14px", color: "#856404", margin: 0 }}>
-            <strong>💡 How it works:</strong> Click "Get Suggestions" (1 credit) on any product. Review AIO-generated optimizations (all checked by default) and uncheck what you don't want. Click "Apply Selected Changes" to update your Shopify store instantly!
+            <strong>💡 How it works:</strong> Click "Get Suggestions" (1 credit) on any product. Review AIO-generated optimizations (all checked by default) and uncheck what you don't want. Click "Apply Selected Changes" to update your Shopify store instantly! 
+            <strong>🆕 NEW:</strong> Suggestions are now enhanced with scan context when available for better results.
           </p>
         </div>
 

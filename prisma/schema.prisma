@@ -59,6 +59,7 @@ model Product {
   lastOptimizedAt DateTime?
   status         ProductStatus @default(ACTIVE)
   createdAt      DateTime  @default(now())
+  lastScanId     String?   // 🆕 Link to latest scan for context
   Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Scan           Scan[]
   Optimization   Optimization[]
@@ -67,6 +68,7 @@ model Product {
 
   @@index([shopId])
   @@index([shopifyId])
+  @@index([lastScanId])
 }
 
 model Scan {
@@ -79,56 +81,109 @@ model Scan {
   isCited        Boolean   @default(false)
   citation       String?
   citationPosition Int?
-  competitors    String[]
+  competitors    String[]  // Already exists - good!
   confidence     Float?
   creditsUsed    Int       @default(1)
   scanDuration   Int?
   createdAt      DateTime  @default(now())
+  
+  // 🆕 ENHANCED INTELLIGENCE FIELDS
+  shopMentioned         Boolean?  // Was the shop name mentioned?
+  shopBeforeCompetitors Boolean?  // Did shop appear before competitors?
+  competitorPositions   Json?     // {"amazon": 45, "ebay": 120, ...}
+  
+  // 🆕 SEMANTIC ANALYSIS
+  keywordsInResponse    String[]  // Top keywords AI used
+  topicsCovered         String[]  // Topics AI discussed
+  topicsMissing         String[]  // Topics from product NOT in response
+  sentimentScore        Int?      // -100 to 100
+  
+  // 🆕 FEATURE ANALYSIS  
+  mentionedFeatures     String[]  // Product features AI mentioned
+  ignoredFeatures       String[]  // Product features AI ignored
+  preferredTerms        Json?     // {"our term": "AI's term", ...}
+  
   Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
   @@index([productId])
   @@index([platform])
+  @@index([createdAt])
 }
 
 model Optimization {
   id          String   @id @default(cuid())
   shopId      String
   productId   String
-  field       String
-  oldValue    String?
-  newValue    String
-  appliedAt   DateTime @default(now())
+  
+  // Original values (for rollback)
+  originalTitle    String?
+  originalDesc     String?
+  originalTags     String?
+  
+  // New optimized values
+  newTitle         String?
+  newDescription   String?
+  newTags          String?
+  newFaq           Json?
+  metaTitle        String?
+  metaDescription  String?
+  
+  // 🆕 CONTEXT & REASONING
+  scanContext      Json?       // Snapshot of scan data that informed this
+  reasoning        String?     // Why these changes help
+  improvements     String[]    // ["Added warranty info", "Included reviews", ...]
+  
+  // Status tracking
+  status           OptimizationStatus @default(PENDING)
+  appliedAt        DateTime?
+  creditsUsed      Int         @default(1)
+  createdAt        DateTime    @default(now())
+  
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
   @@index([productId])
+  @@index([status])
 }
 
 model Alert {
   id          String   @id @default(cuid())
   shopId      String
-  message     String
+  type        String   // 🆕 CITATION_DROP, NEW_COMPETITOR, PERFORMANCE_ISSUE
   severity    Severity @default(INFO)
+  title       String   // 🆕 Alert title
+  message     String
+  productId   String?  // 🆕 Link to product if relevant
+  metadata    Json?    // 🆕 Additional context
   isRead      Boolean  @default(false)
   createdAt   DateTime @default(now())
+  readAt      DateTime? // 🆕 When was it read
+  
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
+  @@index([isRead])
+  @@index([createdAt])
 }
 
 model Event {
   id          String   @id @default(cuid())
   shopId      String
-  eventType   String
+  eventType   String   // PRODUCT_SYNC, SCAN_COMPLETE, OPTIMIZATION_APPLIED, etc.
+  entityId    String?  // 🆕 Product ID, Scan ID, etc.
+  entityType  String?  // 🆕 PRODUCT, SCAN, OPTIMIZATION
   eventData   String?
+  metadata    Json?    // 🆕 Additional structured data
   createdAt   DateTime @default(now())
+  
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
   @@index([eventType])
+  @@index([createdAt])
 }
 
 model OptimizationSuggestion {
@@ -143,6 +198,7 @@ model OptimizationSuggestion {
   status      OptimizationStatus @default(PENDING)
   appliedAt   DateTime?
   createdAt   DateTime @default(now())
+  
   Product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
@@ -159,12 +215,15 @@ model BlogPost {
   status      BlogStatus @default(DRAFT)
   publishedAt DateTime?
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt // 🆕 Track updates
+  
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  @@unique([shopId, slug])
   @@index([shopId])
   @@index([productId])
-  @@index([slug])
+  @@index([status])
 }
 
 enum Plan {
@@ -188,6 +247,7 @@ enum Severity {
   INFO
   WARNING
   ERROR
+  CRITICAL  // 🆕 For urgent alerts
 }
 
 enum OptimizationType {
@@ -195,6 +255,7 @@ enum OptimizationType {
   DESCRIPTION
   TAGS
   META
+  FAQ       // 🆕 For FAQ sections
   BLOG_POST
 }
 
@@ -202,6 +263,7 @@ enum OptimizationStatus {
   PENDING
   APPLIED
   REJECTED
+  REVERTED  // 🆕 If optimization was rolled back
 }
 
 enum BlogStatus {

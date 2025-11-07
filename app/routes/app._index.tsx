@@ -78,9 +78,29 @@ export default function Index() {
       <div style={{ padding: "0 24px 24px 24px" }}>
         {/* HEADER */}
         <div style={{ marginBottom: '32px' }}>
-          <h1 style={{ fontSize: '28px', fontWeight: '600', margin: '0 0 8px 0', color: '#202223' }}>
-            RankInAI Dashboard
-          </h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: '600', margin: 0, color: '#202223' }}>
+              RankInAI Dashboard
+            </h1>
+            <Link 
+              to="/app/products"
+              style={{
+                background: '#2196f3',
+                color: 'white',
+                padding: '12px 24px',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontSize: '14px',
+                fontWeight: '600',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 2px 8px rgba(33,150,243,0.3)'
+              }}
+            >
+              🔄 Sync Products
+            </Link>
+          </div>
           <p style={{ fontSize: '16px', color: '#6d7175', margin: 0 }}>
             Welcome back, {shop.shopName}! 👋
           </p>
@@ -269,30 +289,13 @@ export default function Index() {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '24px', fontWeight: '700', color: '#202223' }}>
-                          {product.citationRate}%
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#9e9e9e' }}>
-                          Citation Rate
-                        </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#202223' }}>
+                        {product.citationRate}%
                       </div>
-                      <Link
-                        to={`/app/products/${product.id}`}
-                        style={{
-                          background: '#2196f3',
-                          color: 'white',
-                          padding: '8px 16px',
-                          borderRadius: '8px',
-                          textDecoration: 'none',
-                          fontSize: '14px',
-                          fontWeight: '500',
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        Optimize
-                      </Link>
+                      <div style={{ fontSize: '12px', color: '#9e9e9e' }}>
+                        Citation Rate
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -343,7 +346,7 @@ export default function Index() {
             }}>
               📦 View All Products
             </Link>
-            <Link to="/app/analytics" style={{
+            <Link to="/app/analyze" style={{
               background: '#f5f5f5',
               color: '#202223',
               padding: '10px 20px',
@@ -355,7 +358,7 @@ export default function Index() {
             }}>
               📊 Analytics
             </Link>
-            <Link to="/app/assistant" style={{
+            <Link to="/app/optimize" style={{
               background: '#f5f5f5',
               color: '#202223',
               padding: '10px 20px',
@@ -365,7 +368,7 @@ export default function Index() {
               fontWeight: '500',
               border: '1px solid #e0e0e0'
             }}>
-              🤖 AI Assistant
+              🤖 AI Optimizer
             </Link>
           </div>
         </div>
