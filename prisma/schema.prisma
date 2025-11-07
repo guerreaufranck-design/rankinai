@@ -34,6 +34,22 @@ model Shop {
   credits        Int       @default(25)
   maxCredits     Int       @default(25)
   installedAt    DateTime  @default(now())
+  
+  // 🆕 GEOGRAPHICAL CONTEXT FOR CONTEXT-AWARE COMPETITOR DETECTION
+  shopCity       String?   // Ex: "Arona", "Paris", "London"
+  shopRegion     String?   // Ex: "Canary Islands", "Île-de-France", "Greater London"
+  shopCountry    String?   // Ex: "Spain", "France", "United Kingdom"
+  shopTimezone   String?   // Ex: "Atlantic/Canary", "Europe/Paris"
+  
+  // 🆕 BUSINESS CONTEXT FOR SMART COMPETITOR FILTERING
+  businessModel  String?   @default("ecommerce") // "ecommerce", "rental", "subscription", "marketplace", "service"
+  businessNiche  String?   // Ex: "baby products", "fashion", "electronics"
+  targetMarket   String?   @default("international") // "local", "regional", "national", "international"
+  
+  // 🆕 CONTEXT METADATA
+  contextUpdatedAt DateTime? // Date de dernière mise à jour du contexte
+  contextSource    String?   // "manual", "auto-detected", "shopify-api"
+  
   Product        Product[]
   Scan           Scan[]
   Optimization   Optimization[]
@@ -59,7 +75,7 @@ model Product {
   lastOptimizedAt DateTime?
   status         ProductStatus @default(ACTIVE)
   createdAt      DateTime  @default(now())
-  lastScanId     String?   // 🆕 Link to latest scan for context
+  lastScanId     String?   // Link to latest scan for context
   Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Scan           Scan[]
   Optimization   Optimization[]
@@ -81,27 +97,27 @@ model Scan {
   isCited        Boolean   @default(false)
   citation       String?
   citationPosition Int?
-  competitors    String[]  // Already exists - good!
+  competitors    String[]
   confidence     Float?
   creditsUsed    Int       @default(1)
   scanDuration   Int?
   createdAt      DateTime  @default(now())
   
-  // 🆕 ENHANCED INTELLIGENCE FIELDS
-  shopMentioned         Boolean?  // Was the shop name mentioned?
-  shopBeforeCompetitors Boolean?  // Did shop appear before competitors?
-  competitorPositions   Json?     // {"amazon": 45, "ebay": 120, ...}
+  // ENHANCED INTELLIGENCE FIELDS
+  shopMentioned         Boolean?
+  shopBeforeCompetitors Boolean?
+  competitorPositions   Json?
   
-  // 🆕 SEMANTIC ANALYSIS
-  keywordsInResponse    String[]  // Top keywords AI used
-  topicsCovered         String[]  // Topics AI discussed
-  topicsMissing         String[]  // Topics from product NOT in response
-  sentimentScore        Int?      // -100 to 100
+  // SEMANTIC ANALYSIS
+  keywordsInResponse    String[]
+  topicsCovered         String[]
+  topicsMissing         String[]
+  sentimentScore        Int?
   
-  // 🆕 FEATURE ANALYSIS  
-  mentionedFeatures     String[]  // Product features AI mentioned
-  ignoredFeatures       String[]  // Product features AI ignored
-  preferredTerms        Json?     // {"our term": "AI's term", ...}
+  // FEATURE ANALYSIS  
+  mentionedFeatures     String[]
+  ignoredFeatures       String[]
+  preferredTerms        Json?
   
   Shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -130,10 +146,10 @@ model Optimization {
   metaTitle        String?
   metaDescription  String?
   
-  // 🆕 CONTEXT & REASONING
-  scanContext      Json?       // Snapshot of scan data that informed this
-  reasoning        String?     // Why these changes help
-  improvements     String[]    // ["Added warranty info", "Included reviews", ...]
+  // CONTEXT & REASONING
+  scanContext      Json?
+  reasoning        String?
+  improvements     String[]
   
   // Status tracking
   status           OptimizationStatus @default(PENDING)
@@ -152,15 +168,15 @@ model Optimization {
 model Alert {
   id          String   @id @default(cuid())
   shopId      String
-  type        String   // 🆕 CITATION_DROP, NEW_COMPETITOR, PERFORMANCE_ISSUE
+  type        String
   severity    Severity @default(INFO)
-  title       String   // 🆕 Alert title
+  title       String
   message     String
-  productId   String?  // 🆕 Link to product if relevant
-  metadata    Json?    // 🆕 Additional context
+  productId   String?
+  metadata    Json?
   isRead      Boolean  @default(false)
   createdAt   DateTime @default(now())
-  readAt      DateTime? // 🆕 When was it read
+  readAt      DateTime?
   
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
@@ -172,11 +188,11 @@ model Alert {
 model Event {
   id          String   @id @default(cuid())
   shopId      String
-  eventType   String   // PRODUCT_SYNC, SCAN_COMPLETE, OPTIMIZATION_APPLIED, etc.
-  entityId    String?  // 🆕 Product ID, Scan ID, etc.
-  entityType  String?  // 🆕 PRODUCT, SCAN, OPTIMIZATION
+  eventType   String
+  entityId    String?
+  entityType  String?
   eventData   String?
-  metadata    Json?    // 🆕 Additional structured data
+  metadata    Json?
   createdAt   DateTime @default(now())
   
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
@@ -215,7 +231,7 @@ model BlogPost {
   status      BlogStatus @default(DRAFT)
   publishedAt DateTime?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt // 🆕 Track updates
+  updatedAt   DateTime @updatedAt
   
   Shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   Product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -247,7 +263,7 @@ enum Severity {
   INFO
   WARNING
   ERROR
-  CRITICAL  // 🆕 For urgent alerts
+  CRITICAL
 }
 
 enum OptimizationType {
@@ -255,7 +271,7 @@ enum OptimizationType {
   DESCRIPTION
   TAGS
   META
-  FAQ       // 🆕 For FAQ sections
+  FAQ
   BLOG_POST
 }
 
@@ -263,7 +279,7 @@ enum OptimizationStatus {
   PENDING
   APPLIED
   REJECTED
-  REVERTED  // 🆕 If optimization was rolled back
+  REVERTED
 }
 
 enum BlogStatus {
