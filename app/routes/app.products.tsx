@@ -11,92 +11,359 @@ import AppHeader from "~/components/AppHeader";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// 🆕 ENHANCED INTELLIGENCE LAYER FOR DYNAMIC COMPETITOR DETECTION
-class AIResponseAnalyzer {
-  // Known e-commerce patterns to detect competitors
-  private static ecommercePatterns = [
-    /(?:available|found|sold|shop|buy)\s+(?:on|at|from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/g,
-    /([A-Z][a-z]+(?:\.[a-z]+)+)/g, // Detect domains
-    /(?:retailers?|stores?|shops?)\s+like\s+([A-Z][a-z]+(?:,?\s+[A-Z][a-z]+)*)/g,
-    /([A-Z][a-z]+)\s+(?:sells?|offers?|stocks?|carries)/g,
-    /(?:competitor|alternative|similar)\s+(?:sites?|stores?|shops?).*?([A-Z][a-z]+)/g,
-  ];
+// 🆕 BUSINESS CONTEXT BUILDER
+interface BusinessContext {
+  businessModel: string; // 'ecommerce', 'rental', 'marketplace', 'service', 'subscription'
+  geography: string; // 'Canary Islands', 'Spain', 'Europe', 'Worldwide'
+  niche: string; // 'baby products', 'fashion', 'electronics', etc.
+  targetMarket: string; // 'local', 'regional', 'national', 'international'
+  serviceType: string; // 'buy', 'rent', 'lease', 'subscribe', 'service'
+}
 
+/**
+ * 🎯 BUILD BUSINESS CONTEXT FROM SHOP DATA
+ * This function analyzes the shop to understand its real business model
+ */
+function buildBusinessContext(shop: any, product: any): BusinessContext {
+  // Analyze shop domain and name for clues
+  const shopDomain = shop.shopifyDomain.toLowerCase();
+  const shopName = shop.shopName.toLowerCase();
+  const productTitle = product.title.toLowerCase();
+  const productDesc = (product.description || "").toLowerCase();
+  
+  // 🔍 DETECT BUSINESS MODEL
+  let businessModel = 'ecommerce'; // default
+  if (
+    shopName.includes('rental') || shopName.includes('rent') || shopName.includes('hire') ||
+    productDesc.includes('rental') || productDesc.includes('for rent') || productDesc.includes('hire')
+  ) {
+    businessModel = 'rental';
+  } else if (
+    shopName.includes('subscription') || shopName.includes('subscribe') ||
+    productDesc.includes('subscription') || productDesc.includes('monthly box')
+  ) {
+    businessModel = 'subscription';
+  } else if (
+    shopName.includes('marketplace') || shopName.includes('platform')
+  ) {
+    businessModel = 'marketplace';
+  } else if (
+    shopName.includes('service') || shopName.includes('booking') ||
+    productDesc.includes('service') || productDesc.includes('appointment')
+  ) {
+    businessModel = 'service';
+  }
+  
+  // 🌍 DETECT GEOGRAPHY (from shop data or domain)
+  let geography = 'Worldwide';
+  let targetMarket = 'international';
+  
+  // If shop has location data (will be added to Prisma)
+  if (shop.shopCountry) {
+    geography = shop.shopCountry;
+    targetMarket = 'national';
+    
+    if (shop.shopRegion) {
+      geography = `${shop.shopRegion}, ${shop.shopCountry}`;
+      targetMarket = 'regional';
+    }
+    
+    if (shop.shopCity) {
+      geography = `${shop.shopCity}, ${shop.shopRegion || shop.shopCountry}`;
+      targetMarket = 'local';
+    }
+  } else {
+    // Detect from domain
+    if (shopDomain.includes('.es') || shopName.includes('spain') || shopName.includes('españa')) {
+      geography = 'Spain';
+      targetMarket = 'national';
+    } else if (shopDomain.includes('.uk') || shopName.includes('uk')) {
+      geography = 'United Kingdom';
+      targetMarket = 'national';
+    } else if (shopDomain.includes('.de') || shopName.includes('germany')) {
+      geography = 'Germany';
+      targetMarket = 'national';
+    } else if (shopDomain.includes('.fr') || shopName.includes('france')) {
+      geography = 'France';
+      targetMarket = 'national';
+    }
+    
+    // Check for regional mentions
+    if (shopName.includes('canary') || shopName.includes('canarias') || shopName.includes('tenerife')) {
+      geography = 'Canary Islands, Spain';
+      targetMarket = 'regional';
+    }
+  }
+  
+  // 🎯 DETECT NICHE (from product catalog)
+  let niche = 'general';
+  const keywords = (productTitle + ' ' + productDesc).toLowerCase();
+  
+  if (keywords.includes('baby') || keywords.includes('infant') || keywords.includes('toddler') || keywords.includes('kids')) {
+    niche = 'baby products';
+  } else if (keywords.includes('fashion') || keywords.includes('clothing') || keywords.includes('apparel')) {
+    niche = 'fashion';
+  } else if (keywords.includes('electronics') || keywords.includes('tech') || keywords.includes('gadget')) {
+    niche = 'electronics';
+  } else if (keywords.includes('home') || keywords.includes('furniture') || keywords.includes('decor')) {
+    niche = 'home goods';
+  } else if (keywords.includes('beauty') || keywords.includes('cosmetic') || keywords.includes('skincare')) {
+    niche = 'beauty';
+  } else if (keywords.includes('sport') || keywords.includes('fitness') || keywords.includes('gym')) {
+    niche = 'sports equipment';
+  }
+  
+  // 🛒 DETECT SERVICE TYPE
+  let serviceType = 'buy';
+  if (businessModel === 'rental') {
+    serviceType = 'rent';
+  } else if (businessModel === 'subscription') {
+    serviceType = 'subscribe';
+  } else if (businessModel === 'service') {
+    serviceType = 'book';
+  } else if (businessModel === 'marketplace') {
+    serviceType = 'buy';
+  }
+  
+  return {
+    businessModel,
+    geography,
+    niche,
+    targetMarket,
+    serviceType,
+  };
+}
+
+/**
+ * 🎯 BUILD CONTEXTUAL PROMPT
+ * Creates AI prompts that understand the shop's real business model
+ */
+function buildContextualPrompt(productTitle: string, context: BusinessContext): string {
+  const { businessModel, geography, niche, targetMarket, serviceType } = context;
+  
+  // Build location context
+  let locationPhrase = '';
+  if (targetMarket === 'local' || targetMarket === 'regional') {
+    locationPhrase = ` in ${geography}`;
+  } else if (targetMarket === 'national') {
+    locationPhrase = ` in ${geography}`;
+  }
+  // For international, no location phrase needed
+  
+  // Build business model context
+  let actionVerb = serviceType; // 'buy', 'rent', 'subscribe', 'book'
+  let businessPhrase = '';
+  
+  if (businessModel === 'rental') {
+    businessPhrase = 'I need to rent temporarily, not buy permanently.';
+  } else if (businessModel === 'subscription') {
+    businessPhrase = 'I want a subscription service, not a one-time purchase.';
+  } else if (businessModel === 'service') {
+    businessPhrase = 'I need to book a service, not buy a product.';
+  }
+  
+  // Build competitor context
+  let competitorGuidance = '';
+  if (businessModel === 'rental') {
+    competitorGuidance = ' Focus on rental services and shops that offer this for rent, not stores that sell it.';
+  } else if (targetMarket === 'local' || targetMarket === 'regional') {
+    competitorGuidance = ` Focus on local or regional businesses${locationPhrase}, not large international platforms.`;
+  }
+  
+  // 🎯 FINAL CONTEXTUAL PROMPT
+  const prompt = `I'm looking to ${actionVerb} ${productTitle}${locationPhrase}. ${businessPhrase}${competitorGuidance} Can you recommend where to ${actionVerb} it? Please suggest specific ${businessModel === 'rental' ? 'rental services' : businessModel === 'subscription' ? 'subscription services' : businessModel === 'service' ? 'service providers' : 'retailers'} with their website URLs if possible.`;
+  
+  return prompt;
+}
+
+/**
+ * 🆕 CONTEXT-AWARE COMPETITOR ANALYZER
+ * Filters competitors based on shop's business context
+ */
+class ContextAwareCompetitorAnalyzer {
   /**
-   * 🎯 DYNAMIC COMPETITOR EXTRACTION - Not hardcoded!
-   * Detects ANY competitor mentioned in AI response
+   * 🎯 EXTRACT CONTEXTUAL COMPETITORS
+   * Only extracts competitors that match the shop's business model
    */
-  static extractCompetitors(
+  static extractContextualCompetitors(
     response: string,
     shopDomain: string,
     shopName: string,
-    productTitle: string
+    productTitle: string,
+    businessContext: BusinessContext
   ): {
     competitors: string[];
     competitorPositions: { [name: string]: number };
     shopPosition: number;
+    nonCompetitors: string[]; // Generic platforms we filtered out
   } {
     const responseLower = response.toLowerCase();
-    const competitors = new Set<string>();
+    const allMentions = new Set<string>();
     const competitorPositions: { [name: string]: number } = {};
+    const nonCompetitors: string[] = [];
     
-    // Extract potential competitor names using patterns
-    this.ecommercePatterns.forEach(pattern => {
+    // 🚫 GENERIC PLATFORMS TO FILTER OUT (they're not real competitors)
+    const genericPlatforms = new Set([
+      'amazon', 'ebay', 'aliexpress', 'wish', 'etsy',
+      'walmart', 'target', 'bestbuy', 'alibaba',
+      'shein', 'temu', 'joom', 'banggood',
+    ]);
+    
+    // 🔍 EXTRACT ALL POTENTIAL COMPETITOR MENTIONS
+    
+    // Pattern 1: "Shop at X" or "Available at X"
+    const shopPatterns = [
+      /(?:shop\s+at|available\s+at|buy\s+(?:from|at)|rent\s+(?:from|at)|check\s+out)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/gi,
+      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:offers?|provides?|rents?|sells?)/gi,
+    ];
+    
+    shopPatterns.forEach(pattern => {
       const matches = response.matchAll(pattern);
       for (const match of matches) {
         if (match[1]) {
-          const names = match[1].split(/,\s+|\s+and\s+/);
-          names.forEach(name => {
-            const cleanName = name.trim().toLowerCase();
-            // Filter out common words and the shop itself
-            if (
-              cleanName &&
-              cleanName.length > 2 &&
-              !cleanName.includes(shopDomain.toLowerCase()) &&
-              !cleanName.includes(shopName.toLowerCase()) &&
-              !cleanName.includes(productTitle.toLowerCase()) &&
-              !['the', 'this', 'that', 'these', 'those', 'online', 'store', 'shop', 'website'].includes(cleanName)
-            ) {
-              competitors.add(cleanName);
-              // Record position if not already recorded
-              if (!competitorPositions[cleanName]) {
-                const position = responseLower.indexOf(cleanName);
-                if (position >= 0) {
-                  competitorPositions[cleanName] = position;
-                }
-              }
+          const name = match[1].trim().toLowerCase();
+          if (name.length > 2 && !name.includes(productTitle.toLowerCase())) {
+            allMentions.add(name);
+            if (!competitorPositions[name]) {
+              competitorPositions[name] = responseLower.indexOf(name);
             }
-          });
+          }
         }
       }
     });
-
-    // Check for specific domain mentions
-    const domainPattern = /(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+)\.(com|net|org|shop|store|co|io)/gi;
+    
+    // Pattern 2: Domain mentions (website URLs)
+    const domainPattern = /(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+)\.(com|net|org|shop|store|co|io|es|uk|de|fr)/gi;
     const domainMatches = response.matchAll(domainPattern);
     for (const match of domainMatches) {
       const domain = match[1].toLowerCase();
-      if (domain && !domain.includes(shopDomain.toLowerCase())) {
-        competitors.add(domain);
+      if (domain && domain.length > 2 && !domain.includes(shopDomain.toLowerCase())) {
+        allMentions.add(domain);
         if (!competitorPositions[domain]) {
           competitorPositions[domain] = responseLower.indexOf(domain);
         }
       }
     }
-
+    
+    // 🎯 FILTER BASED ON BUSINESS CONTEXT
+    const realCompetitors: string[] = [];
+    
+    allMentions.forEach(mention => {
+      const isGeneric = genericPlatforms.has(mention);
+      
+      if (isGeneric) {
+        // Filter out generic platforms (they're not real competitors)
+        nonCompetitors.push(mention);
+        delete competitorPositions[mention];
+        return;
+      }
+      
+      // Check if mention matches our business context
+      const isRelevant = this.isRelevantCompetitor(
+        mention,
+        businessContext,
+        responseLower
+      );
+      
+      if (isRelevant) {
+        realCompetitors.push(mention);
+      } else {
+        nonCompetitors.push(mention);
+        delete competitorPositions[mention];
+      }
+    });
+    
     // Find shop position
     const shopPosition = Math.min(
       responseLower.indexOf(shopDomain.toLowerCase()) >= 0 ? responseLower.indexOf(shopDomain.toLowerCase()) : Infinity,
       responseLower.indexOf(shopName.toLowerCase()) >= 0 ? responseLower.indexOf(shopName.toLowerCase()) : Infinity
     );
-
+    
     return {
-      competitors: Array.from(competitors),
+      competitors: realCompetitors,
       competitorPositions,
       shopPosition: shopPosition === Infinity ? -1 : shopPosition,
+      nonCompetitors,
     };
   }
+  
+  /**
+   * 🎯 CHECK IF MENTION IS RELEVANT COMPETITOR
+   * Based on business model and context
+   */
+  static isRelevantCompetitor(
+    mention: string,
+    context: BusinessContext,
+    fullResponse: string
+  ): boolean {
+    const mentionContext = this.extractMentionContext(mention, fullResponse);
+    
+    // For rental businesses, only rental services are competitors
+    if (context.businessModel === 'rental') {
+      return mentionContext.includes('rental') || 
+             mentionContext.includes('rent') || 
+             mentionContext.includes('hire') ||
+             mentionContext.includes('lease');
+    }
+    
+    // For subscription businesses, only subscription services are competitors
+    if (context.businessModel === 'subscription') {
+      return mentionContext.includes('subscription') || 
+             mentionContext.includes('subscribe') || 
+             mentionContext.includes('monthly box');
+    }
+    
+    // For local/regional shops, check if competitor is also local
+    if (context.targetMarket === 'local' || context.targetMarket === 'regional') {
+      // If mention includes location keywords matching our geography, it's relevant
+      const geographyKeywords = context.geography.toLowerCase().split(/,\s*/);
+      const hasLocationMatch = geographyKeywords.some(keyword => 
+        mentionContext.includes(keyword) || mention.includes(keyword)
+      );
+      
+      if (hasLocationMatch) {
+        return true;
+      }
+      
+      // If no location mentioned, it's probably a generic platform (not relevant)
+      return false;
+    }
+    
+    // For niche-specific businesses, check niche relevance
+    if (context.niche !== 'general') {
+      const nicheKeywords = context.niche.split(/\s+/);
+      const hasNicheMatch = nicheKeywords.some(keyword => 
+        mentionContext.includes(keyword) || mention.includes(keyword)
+      );
+      
+      return hasNicheMatch;
+    }
+    
+    // Default: it's relevant
+    return true;
+  }
+  
+  /**
+   * 🎯 EXTRACT CONTEXT AROUND A MENTION
+   * Get the sentence or paragraph where the mention appears
+   */
+  static extractMentionContext(mention: string, fullResponse: string, contextLength: number = 150): string {
+    const lowerResponse = fullResponse.toLowerCase();
+    const mentionIndex = lowerResponse.indexOf(mention);
+    
+    if (mentionIndex === -1) {
+      return '';
+    }
+    
+    const start = Math.max(0, mentionIndex - contextLength);
+    const end = Math.min(fullResponse.length, mentionIndex + mention.length + contextLength);
+    
+    return fullResponse.substring(start, end).toLowerCase();
+  }
+}
 
+// 🆕 ENHANCED INTELLIGENCE LAYER FOR DYNAMIC COMPETITOR DETECTION
+class AIResponseAnalyzer {
   /**
    * 🎯 EXTRACT KEYWORDS WITH CONTEXT
    */
@@ -310,7 +577,7 @@ class AIResponseAnalyzer {
 }
 
 /**
- * 🎯 COMPREHENSIVE RESPONSE ANALYSIS
+ * 🎯 COMPREHENSIVE RESPONSE ANALYSIS WITH CONTEXT
  */
 function analyzeResponseWithIntelligence(
   fullResponse: string,
@@ -318,7 +585,8 @@ function analyzeResponseWithIntelligence(
   shopDomain: string,
   shopName: string,
   productHandle: string,
-  productDescription: string
+  productDescription: string,
+  businessContext: BusinessContext
 ) {
   const responseLower = fullResponse.toLowerCase();
   const productLower = productTitle.toLowerCase();
@@ -343,12 +611,13 @@ function analyzeResponseWithIntelligence(
     }
   }
   
-  // 🆕 DYNAMIC COMPETITOR ANALYSIS
-  const competitorAnalysis = AIResponseAnalyzer.extractCompetitors(
+  // 🆕 CONTEXT-AWARE COMPETITOR ANALYSIS
+  const competitorAnalysis = ContextAwareCompetitorAnalyzer.extractContextualCompetitors(
     fullResponse,
     shopDomain,
     shopName,
-    productTitle
+    productTitle,
+    businessContext
   );
   
   const shopBeforeCompetitors = competitorAnalysis.shopPosition >= 0 && 
@@ -400,12 +669,15 @@ function analyzeResponseWithIntelligence(
   
   if (competitorAnalysis.competitors.length === 0) {
     score += 10;
-    breakdown.push("✅ No competitors mentioned (+10)");
+    breakdown.push("✅ No real competitors mentioned (+10)");
+    if (competitorAnalysis.nonCompetitors.length > 0) {
+      breakdown.push(`   (Filtered out generic platforms: ${competitorAnalysis.nonCompetitors.slice(0, 3).join(', ')})`);
+    }
   } else if (competitorAnalysis.competitors.length <= 2) {
     score += 5;
-    breakdown.push(`⚠️ ${competitorAnalysis.competitors.length} competitors: ${competitorAnalysis.competitors.join(', ')} (+5)`);
+    breakdown.push(`⚠️ ${competitorAnalysis.competitors.length} relevant competitors: ${competitorAnalysis.competitors.join(', ')} (+5)`);
   } else {
-    breakdown.push(`❌ ${competitorAnalysis.competitors.length} competitors detected: ${competitorAnalysis.competitors.slice(0, 5).join(', ')}... (0)`);
+    breakdown.push(`❌ ${competitorAnalysis.competitors.length} relevant competitors: ${competitorAnalysis.competitors.slice(0, 5).join(', ')}... (0)`);
   }
   
   if (shopBeforeCompetitors) {
@@ -447,6 +719,7 @@ function analyzeResponseWithIntelligence(
     // 🆕 ENHANCED INTELLIGENCE DATA
     competitors: competitorAnalysis.competitors,
     competitorPositions: competitorAnalysis.competitorPositions,
+    nonCompetitors: competitorAnalysis.nonCompetitors,
     keywordsInResponse,
     topicsCovered,
     topicsMissing,
@@ -483,6 +756,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       totalScans: true,
       lastScanAt: true,
       status: true,
+      description: true, // 🆕 Need this for context
     },
     orderBy: { citationRate: "desc" },
   });
@@ -523,6 +797,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       credits: shop.credits,
       maxCredits: shop.maxCredits,
       shopifyDomain: shop.shopifyDomain,
+      // 🆕 Add context fields (will need Prisma update)
+      shopCountry: shop.shopCountry || null,
+      shopRegion: shop.shopRegion || null,
+      shopCity: shop.shopCity || null,
     },
     products: productsWithScans,
   });
@@ -643,13 +921,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     const productUrl = `https://${shop.shopifyDomain}/products/${product.handle}`;
-    const smartPrompt = `I'm looking to buy a ${product.title}. Can you recommend where to buy it online? Please suggest specific online retailers with their website URLs if possible.`;
+    
+    // 🆕 BUILD CONTEXTUAL PROMPT
+    const businessContext = buildBusinessContext(shop, product);
+    const smartPrompt = buildContextualPrompt(product.title, businessContext);
 
     let fullResponse = "";
     const startTime = Date.now();
 
     console.log(`\n🔍 Scanning ${platform} for: ${product.title}`);
-    console.log(`📝 Prompt: ${smartPrompt}`);
+    console.log(`🎯 Business Context:`, JSON.stringify(businessContext, null, 2));
+    console.log(`📝 Contextual Prompt: ${smartPrompt}`);
 
     if (platform === "CHATGPT") {
       const completion = await openai.chat.completions.create({
@@ -675,34 +957,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`\n📄 Response (${fullResponse.length} chars):\n${fullResponse.substring(0, 300)}...`);
 
-    // 🆕 ENHANCED ANALYSIS WITH INTELLIGENCE
+    // 🆕 ENHANCED ANALYSIS WITH CONTEXT
     const analysis = analyzeResponseWithIntelligence(
       fullResponse,
       product.title,
       shop.shopifyDomain,
       shop.shopName,
       product.handle,
-      product.description || ""
+      product.description || "",
+      businessContext
     );
 
-    console.log(`\n📊 Enhanced Analysis:`);
+    console.log(`\n📊 Context-Aware Analysis:`);
     console.log(analysis.breakdown);
     console.log(`\n🎯 SCORE: ${analysis.score}/100`);
-    console.log(`\n🆕 INTELLIGENCE CONTEXT:`);
-    console.log(`Dynamic Competitors Detected: ${analysis.competitors.join(', ') || 'None'}`);
+    console.log(`\n🆕 CONTEXTUAL INTELLIGENCE:`);
+    console.log(`Business Model: ${businessContext.businessModel}`);
+    console.log(`Geography: ${businessContext.geography}`);
+    console.log(`Target Market: ${businessContext.targetMarket}`);
+    console.log(`Real Competitors Detected: ${analysis.competitors.join(', ') || 'None ✅'}`);
+    console.log(`Generic Platforms Filtered: ${analysis.nonCompetitors.join(', ') || 'None'}`);
     console.log(`Keywords: ${analysis.keywordsInResponse.slice(0, 10).join(', ')}`);
-    console.log(`Topics Covered: ${analysis.topicsCovered.join(', ')}`);
     console.log(`Topics Missing: ${analysis.topicsMissing.join(', ')}`);
-    console.log(`Features Mentioned: ${analysis.mentionedFeatures.join(', ')}`);
-    console.log(`Features Ignored: ${analysis.ignoredFeatures.join(', ')}`);
     console.log(`Sentiment: ${analysis.sentimentScore > 0 ? '😊 Positive' : analysis.sentimentScore < 0 ? '😔 Negative' : '😐 Neutral'} (${analysis.sentimentScore})`);
-    if (Object.keys(analysis.preferredTerms).length > 0) {
-      console.log(`AI Preferred Terms: ${JSON.stringify(analysis.preferredTerms)}`);
-    }
 
     const scanId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    // 🆕 SAVE ENHANCED SCAN DATA WITH FULL INTELLIGENCE
+    // 🆕 SAVE ENHANCED SCAN DATA WITH FULL CONTEXT
     const newScan = await prisma.scan.create({
       data: {
         id: scanId,
@@ -718,7 +999,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         creditsUsed: 1,
         scanDuration,
         
-        // 🆕 ENHANCED INTELLIGENCE FIELDS
+        // 🆕 CONTEXTUAL INTELLIGENCE FIELDS
         shopMentioned: analysis.isShopMentioned,
         shopBeforeCompetitors: analysis.shopBeforeCompetitors,
         competitors: analysis.competitors,
@@ -781,7 +1062,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         citationRate,
         totalScans: { increment: 1 },
         lastScanAt: new Date(),
-        lastScanId: newScan.id, // 🆕 Critical link for context flow
+        lastScanId: newScan.id,
       },
     });
 
@@ -790,8 +1071,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       data: { credits: { decrement: 1 } },
     });
 
-    // 🆕 CREATE ALERT IF NEEDED
+    // 🆕 CREATE CONTEXTUAL ALERT
     if (analysis.score < 20) {
+      let alertMessage = `The product was not mentioned in ${platform}'s response.`;
+      
+      if (analysis.competitors.length > 0) {
+        alertMessage += ` ${analysis.competitors.length} relevant competitor(s) mentioned instead: ${analysis.competitors.slice(0, 3).join(', ')}.`;
+      } else if (analysis.nonCompetitors.length > 0) {
+        alertMessage += ` Only generic platforms mentioned (${analysis.nonCompetitors.slice(0, 2).join(', ')}), not real competitors.`;
+      }
+      
+      alertMessage += ' Consider optimizing product description and business context.';
+      
       await prisma.alert.create({
         data: {
           id: `alert_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -799,18 +1090,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           type: "CITATION_DROP",
           severity: "CRITICAL",
           title: `⚠️ ${product.title} not cited by ${platform}`,
-          message: `The product was not mentioned in ${platform}'s response. ${analysis.competitors.length > 0 ? `Competitors mentioned instead: ${analysis.competitors.slice(0, 3).join(', ')}` : 'Consider optimizing product description.'}`,
+          message: alertMessage,
           productId: product.id,
           metadata: {
             scanId: newScan.id,
+            businessContext: businessContext,
             competitors: analysis.competitors,
+            nonCompetitors: analysis.nonCompetitors,
             missingTopics: analysis.topicsMissing,
           },
         },
       });
     }
 
-    console.log(`\n✅ Scan completed with enhanced intelligence!`);
+    console.log(`\n✅ Context-aware scan completed!`);
     console.log(`Platform Score: ${platformScore}%`);
     console.log(`Global Citation Rate: ${citationRate}%\n`);
 
@@ -820,9 +1113,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       breakdown: analysis.breakdown,
       platformScore,
       citationRate,
-      // 🆕 Return intelligence data to frontend
+      // 🆕 Return contextual intelligence to frontend
       intelligence: {
+        businessContext,
         competitors: analysis.competitors,
+        nonCompetitors: analysis.nonCompetitors,
         topicsMissing: analysis.topicsMissing,
         sentimentScore: analysis.sentimentScore,
       },
@@ -903,9 +1198,9 @@ export default function Products() {
     }
     
     if (competitors.length === 0) {
-      lines.push(`✅ No competitors mentioned (+10)`);
+      lines.push(`✅ No real competitors mentioned (+10)`);
     } else {
-      lines.push(`⚠️ ${competitors.length} competitors detected: ${competitors.slice(0, 5).join(', ')}... (0)`);
+      lines.push(`⚠️ ${competitors.length} relevant competitors: ${competitors.slice(0, 5).join(', ')} (0)`);
     }
     
     // 🆕 Enhanced context if available
@@ -960,7 +1255,7 @@ export default function Products() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
               <h2 style={{ fontSize: "24px", fontWeight: "600", margin: 0, color: "#202223" }}>
-                🎯 Intelligent Scan Analysis
+                🎯 Context-Aware Analysis
               </h2>
               <button
                 onClick={() => setSelectedProduct(null)}
@@ -981,7 +1276,7 @@ export default function Products() {
                 {selectedProduct.title}
               </h3>
               <p style={{ fontSize: "14px", color: "#6d7175", margin: 0 }}>
-                Last scan intelligence report
+                Intelligent scan report with real competitor detection
               </p>
             </div>
 
@@ -1005,12 +1300,12 @@ export default function Products() {
 
                 <div style={{ marginTop: "24px", padding: "16px", background: "#e8f5e9", borderRadius: "8px" }}>
                   <p style={{ fontSize: "14px", color: "#2e7d32", margin: 0 }}>
-                    <strong>💡 Intelligent Insight:</strong> {
-                      selectedProduct.lastScan.topicsMissing && selectedProduct.lastScan.topicsMissing.length > 0
+                    <strong>💡 Contextual Insight:</strong> {
+                      selectedProduct.lastScan.competitors && selectedProduct.lastScan.competitors.length > 0
+                        ? `Focus on differentiating from ${selectedProduct.lastScan.competitors[0]} - they're a real competitor in your niche.`
+                        : selectedProduct.lastScan.topicsMissing && selectedProduct.lastScan.topicsMissing.length > 0
                         ? `Add content about ${selectedProduct.lastScan.topicsMissing[0]} to improve visibility.`
-                        : selectedProduct.lastScan.competitors && selectedProduct.lastScan.competitors.length > 2
-                        ? "Focus on unique value propositions to differentiate from competitors."
-                        : "Consider adding customer reviews and trust signals to boost recommendations."
+                        : "No relevant competitors detected - great positioning! Focus on maintaining unique value."
                     }
                   </p>
                 </div>
@@ -1018,16 +1313,22 @@ export default function Products() {
                 {fetcher.data?.intelligence && (
                   <div style={{ marginTop: "16px", padding: "16px", background: "#e3f2fd", borderRadius: "8px" }}>
                     <h4 style={{ fontSize: "14px", fontWeight: "600", margin: "0 0 8px 0", color: "#1976d2" }}>
-                      🆕 Latest Intelligence Update:
+                      🆕 Latest Context-Aware Update:
                     </h4>
                     <ul style={{ fontSize: "13px", margin: 0, paddingLeft: "20px", color: "#1565c0" }}>
-                      {fetcher.data.intelligence.competitors?.length > 0 && (
-                        <li>New competitors detected: {fetcher.data.intelligence.competitors.join(', ')}</li>
+                      <li>Business Model: {fetcher.data.intelligence.businessContext?.businessModel}</li>
+                      <li>Geography: {fetcher.data.intelligence.businessContext?.geography}</li>
+                      {fetcher.data.intelligence.competitors?.length > 0 ? (
+                        <li>Real competitors: {fetcher.data.intelligence.competitors.join(', ')}</li>
+                      ) : (
+                        <li>✅ No relevant competitors detected</li>
+                      )}
+                      {fetcher.data.intelligence.nonCompetitors?.length > 0 && (
+                        <li>Filtered out: {fetcher.data.intelligence.nonCompetitors.join(', ')}</li>
                       )}
                       {fetcher.data.intelligence.topicsMissing?.length > 0 && (
                         <li>Topics to add: {fetcher.data.intelligence.topicsMissing.join(', ')}</li>
                       )}
-                      <li>Sentiment score: {fetcher.data.intelligence.sentimentScore}</li>
                     </ul>
                   </div>
                 )}
@@ -1035,7 +1336,7 @@ export default function Products() {
             ) : (
               <div style={{ textAlign: "center", padding: "40px 20px" }}>
                 <p style={{ fontSize: "16px", color: "#9e9e9e" }}>
-                  No scan data available yet. Run a scan to see intelligent analysis!
+                  No scan data available yet. Run a scan to see context-aware analysis!
                 </p>
               </div>
             )}
@@ -1048,10 +1349,10 @@ export default function Products() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
             <div>
               <h1 style={{ fontSize: "28px", fontWeight: "600", margin: "0 0 8px 0", color: "#202223" }}>
-                📦 Products with Intelligence
+                📦 Products with Contextual Intelligence
               </h1>
               <p style={{ fontSize: "16px", color: "#6d7175", margin: 0 }}>
-                {products.length} products • {shop?.credits || 0} credits • AI-powered competitor detection
+                {products.length} products • {shop?.credits || 0} credits • Real competitor detection (not Amazon/eBay)
               </p>
             </div>
             <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
@@ -1176,7 +1477,7 @@ export default function Products() {
                           {product.totalScans > 0 ? `Last: ${new Date(product.lastScanAt || "").toLocaleDateString()}` : "Never scanned"}
                           {product.lastScan?.competitors && product.lastScan.competitors.length > 0 && (
                             <span style={{ marginLeft: "8px", color: "#ff9800" }}>
-                              • {product.lastScan.competitors.length} competitors detected
+                              • {product.lastScan.competitors.length} real competitors
                             </span>
                           )}
                         </div>
@@ -1202,7 +1503,7 @@ export default function Products() {
                                 fontWeight: "500",
                               }}
                             >
-                              🎯 View Intelligence
+                              🎯 View Context
                             </button>
                           )}
                         </div>
