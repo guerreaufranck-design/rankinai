@@ -75,6 +75,85 @@ export default function Index() {
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "#f6f6f7", minHeight: "100vh" }}>
       <AppHeader />
       
+      {/* Welcome Modal */}
+      {stats.totalProducts === 0 && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '40px',
+            maxWidth: '500px',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            position: 'relative'
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎉</div>
+              <h2 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 12px 0', color: '#202223' }}>
+                Welcome to RankInAI!
+              </h2>
+              <p style={{ fontSize: '16px', color: '#6d7175', margin: 0, lineHeight: '1.5' }}>
+                Thank you for installing our app. Let's get you started!
+              </p>
+            </div>
+
+            <div style={{
+              background: '#f8f9fa',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '24px'
+            }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 16px 0', color: '#202223' }}>
+                Quick Setup (2 minutes)
+              </h3>
+              <ol style={{ margin: 0, paddingLeft: '20px', color: '#6d7175', lineHeight: '1.8' }}>
+                <li><strong>Click "Sync Products"</strong> to import your store products</li>
+                <li>Wait for the sync to complete (usually 30-60 seconds)</li>
+                <li>That's it! The app will analyze your products automatically</li>
+              </ol>
+            </div>
+
+            <Link
+              to="/app/products"
+              style={{
+                background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+                color: 'white',
+                padding: '14px 32px',
+                borderRadius: '10px',
+                textDecoration: 'none',
+                fontSize: '16px',
+                fontWeight: '600',
+                display: 'block',
+                textAlign: 'center',
+                boxShadow: '0 4px 12px rgba(33,150,243,0.4)'
+              }}
+            >
+              🚀 Sync Products Now
+            </Link>
+
+            <p style={{ 
+              fontSize: '13px', 
+              color: '#9e9e9e', 
+              textAlign: 'center', 
+              margin: '16px 0 0 0' 
+            }}>
+              Enjoying RankInAI? Please <a href="https://apps.shopify.com/rankinai" target="_blank" rel="noopener noreferrer" style={{ color: '#2196f3', textDecoration: 'none' }}>leave us a review</a> ⭐
+            </p>
+          </div>
+        </div>
+      )}
+
       <div style={{ padding: "0 24px 24px 24px" }}>
         {/* HEADER */}
         <div style={{ marginBottom: '32px' }}>
