@@ -9,54 +9,193 @@ import AppHeader from "~/components/AppHeader";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+// ============================================
+// 🛡️ HELPERS DE SÉCURITÉ ET ROBUSTESSE
+// ============================================
+
+/**
+ * Parser JSON de Gemini avec validation robuste
+ */
+function parseGeminiJSON(rawText: string, context: "suggestions" | "blog"): any {
+  try {
+    let cleanText = rawText.trim();
+    
+    // Supprimer les markdown code blocks
+    if (cleanText.startsWith("```json")) {
+      cleanText = cleanText.replace(/```json\n?/g, "").replace(/```\n?$/g, "");
+    } else if (cleanText.startsWith("```")) {
+      cleanText = cleanText.replace(/```\n?/g, "");
+    }
+    
+    // Parser
+    const parsed = JSON.parse(cleanText);
+    
+    // Validation selon le contexte
+    if (context === "suggestions") {
+      if (!parsed.title || typeof parsed.title !== "string") {
+        throw new Error("Missing or invalid 'title' field");
+      }
+      if (!parsed.description || typeof parsed.description !== "string") {
+        throw new Error("Missing or invalid 'description' field");
+      }
+      
+      // S'assurer que tags est un array
+      if (!Array.isArray(parsed.tags)) {
+        console.warn("⚠️ tags is not an array, converting to empty array");
+        parsed.tags = [];
+      }
+      
+      // S'assurer que faq est un array
+      if (!Array.isArray(parsed.faq)) {
+        console.warn("⚠️ faq is not an array, converting to empty array");
+        parsed.faq = [];
+      }
+    } else if (context === "blog") {
+      if (!parsed.title || typeof parsed.title !== "string") {
+        throw new Error("Missing or invalid blog 'title'");
+      }
+      if (!parsed.bodyHtml || typeof parsed.bodyHtml !== "string") {
+        throw new Error("Missing or invalid blog 'bodyHtml'");
+      }
+    }
+    
+    return parsed;
+  } catch (error: any) {
+    console.error(`❌ JSON parsing error in ${context}:`, error.message);
+    console.error("Raw text preview:", rawText.substring(0, 300));
+    throw new Error(`Failed to parse ${context} JSON: ${error.message}`);
+  }
+}
+
+/**
+ * Appel Gemini avec timeout et retry
+ */
+async function callGeminiWithRetry(
+  prompt: string,
+  modelConfig: any,
+  maxRetries: number = 2,
+  timeoutMs: number = 45000
+): Promise<string> {
+  const model = genAI.getGenerativeModel(modelConfig);
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`🤖 Gemini API call attempt ${attempt + 1}/${maxRetries + 1}`);
+      
+      // Créer une promesse avec timeout
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Gemini API timeout")), timeoutMs)
+      );
+      
+      const generationPromise = model.generateContent(prompt);
+      
+      // Race entre le timeout et l'appel réel
+      const result = await Promise.race([generationPromise, timeoutPromise]);
+      
+      const response = result.response;
+      const text = response.text();
+      
+      if (!text || text.trim().length === 0) {
+        throw new Error("Empty response from Gemini");
+      }
+      
+      console.log(`✅ Gemini responded successfully (${text.length} chars)`);
+      return text;
+      
+    } catch (error: any) {
+      console.error(`❌ Gemini attempt ${attempt + 1} failed:`, error.message);
+      
+      if (attempt === maxRetries) {
+        throw new Error(`Gemini API failed after ${maxRetries + 1} attempts: ${error.message}`);
+      }
+      
+      // Backoff exponentiel
+      const waitTime = 1000 * Math.pow(2, attempt);
+      console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+  
+  throw new Error("Gemini API failed unexpectedly");
+}
+
+/**
+ * Accès sécurisé aux valeurs optionnelles
+ */
+function safeGet<T>(value: T | null | undefined, fallback: T): T {
+  return value ?? fallback;
+}
+
+// ============================================
+// 🔄 LOADER
+// ============================================
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  try {
+    const { session } = await authenticate.admin(request);
 
-  const shop = await prisma.shop.findFirst({
-    where: { shopifyDomain: session.shop },
-  });
+    const shop = await prisma.shop.findFirst({
+      where: { shopifyDomain: session.shop },
+    });
 
-  if (!shop) {
-    return json({ 
+    if (!shop) {
+      return json({
+        shop: { credits: 0, maxCredits: 25, shopName: "" },
+        products: [],
+      });
+    }
+
+    const products = await prisma.product.findMany({
+      where: { shopId: shop.id },
+      select: {
+        id: true,
+        shopifyGid: true,
+        title: true,
+        description: true,
+        tags: true,
+        citationRate: true,
+        chatgptRate: true,
+        geminiRate: true,
+        totalScans: true,
+        lastOptimizedAt: true,
+      },
+      orderBy: { citationRate: "asc" },
+    });
+
+    return json({
+      shop: {
+        shopName: safeGet(shop.shopName, ""),
+        credits: safeGet(shop.credits, 0),
+        maxCredits: safeGet(shop.maxCredits, 25),
+      },
+      products,
+    });
+  } catch (error: any) {
+    console.error("❌ Loader error:", error);
+    return json({
       shop: { credits: 0, maxCredits: 25, shopName: "" },
       products: [],
-    });
+      error: "Failed to load data",
+    }, { status: 500 });
   }
-
-  const products = await prisma.product.findMany({
-    where: { shopId: shop.id },
-    select: {
-      id: true,
-      shopifyGid: true,
-      title: true,
-      description: true,
-      tags: true,
-      citationRate: true,
-      chatgptRate: true,
-      geminiRate: true,
-      totalScans: true,
-      lastOptimizedAt: true,
-    },
-    orderBy: { citationRate: "asc" },
-  });
-
-  return json({
-    shop: {
-      shopName: shop.shopName || "",
-      credits: shop.credits || 0,
-      maxCredits: shop.maxCredits || 25,
-    },
-    products,
-  });
 };
+
+// ============================================
+// ⚡ ACTION
+// ============================================
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const action = formData.get("action") as string;
-  const productId = formData.get("productId") as string;
-
+  
   try {
+    const formData = await request.formData();
+    const action = formData.get("action") as string;
+    const productId = formData.get("productId") as string;
+
+    if (!action || !productId) {
+      return json({ error: "Missing action or productId" }, { status: 400 });
+    }
+
     const shop = await prisma.shop.findFirst({
       where: { shopifyDomain: session.shop },
     });
@@ -73,101 +212,104 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ error: "Product not found" }, { status: 404 });
     }
 
+    // ============================================
+    // 🎨 ACTION: GÉNÉRER LES SUGGESTIONS
+    // ============================================
     if (action === "generateSuggestions") {
-      if (shop.credits <= 0) {
+      if (safeGet(shop.credits, 0) <= 0) {
         return json({ error: "No credits remaining" }, { status: 402 });
       }
 
-      // ============================================
-      // 🆕 RÉCUPÉRER L'HISTORIQUE DES SCANS
-      // ============================================
-      const historicalScans = await prisma.scan.findMany({
-        where: { productId: product.id },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
+      try {
+        // Récupérer l'historique des scans
+        const historicalScans = await prisma.scan.findMany({
+          where: { productId: product.id },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+        });
 
-      // 🆕 RÉCUPÉRER LE DERNIER SCAN ENRICHI
-      const lastScan = await prisma.scan.findFirst({
-        where: { productId: product.id },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          platform: true,
-          isCited: true,
-          shopMentioned: true,
-          shopBeforeCompetitors: true,
-          competitors: true,
-          topicsCovered: true,
-          topicsMissing: true,
-          keywordsInResponse: true,
-          sentimentScore: true,
-          createdAt: true,
-        },
-      });
+        // Récupérer le dernier scan enrichi
+        const lastScan = await prisma.scan.findFirst({
+          where: { productId: product.id },
+          orderBy: { createdAt: "desc" },
+          select: {
+            platform: true,
+            isCited: true,
+            shopMentioned: true,
+            shopBeforeCompetitors: true,
+            competitors: true,
+            topicsCovered: true,
+            topicsMissing: true,
+            keywordsInResponse: true,
+            sentimentScore: true,
+            createdAt: true,
+            citationPosition: true,
+          },
+        });
 
-      // Calculer les tendances temporelles
-      const now = new Date();
-      const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+        // Calculer les tendances temporelles
+        const now = new Date();
+        const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-      const scansLastMonth = historicalScans.filter(s => new Date(s.createdAt) >= oneMonthAgo);
-      const scansPreviousMonth = historicalScans.filter(
-        s => new Date(s.createdAt) >= twoMonthsAgo && new Date(s.createdAt) < oneMonthAgo
-      );
+        const scansLastMonth = historicalScans.filter(s => new Date(s.createdAt) >= oneMonthAgo);
+        const scansPreviousMonth = historicalScans.filter(
+          s => new Date(s.createdAt) >= twoMonthsAgo && new Date(s.createdAt) < oneMonthAgo
+        );
 
-      const citationRateLastMonth = scansLastMonth.length > 0
-        ? (scansLastMonth.filter(s => s.isCited).length / scansLastMonth.length) * 100
-        : 0;
-      const citationRatePreviousMonth = scansPreviousMonth.length > 0
-        ? (scansPreviousMonth.filter(s => s.isCited).length / scansPreviousMonth.length) * 100
-        : 0;
+        const citationRateLastMonth = scansLastMonth.length > 0
+          ? (scansLastMonth.filter(s => s.isCited).length / scansLastMonth.length) * 100
+          : 0;
+        const citationRatePreviousMonth = scansPreviousMonth.length > 0
+          ? (scansPreviousMonth.filter(s => s.isCited).length / scansPreviousMonth.length) * 100
+          : 0;
 
-      const trend = citationRateLastMonth - citationRatePreviousMonth;
-      const trendDirection = trend > 0 ? "INCREASING 📈" : trend < 0 ? "DECLINING 📉" : "STABLE ➡️";
+        const trend = citationRateLastMonth - citationRatePreviousMonth;
+        const trendDirection = trend > 0 ? "INCREASING 📈" : trend < 0 ? "DECLINING 📉" : "STABLE ➡️";
 
-      // Extraire l'évolution des concurrents
-      const allCompetitors = historicalScans
-        .flatMap(s => s.competitors || [])
-        .filter((c, i, arr) => arr.indexOf(c) === i);
+        // Extraire l'évolution des concurrents
+        const allCompetitors = historicalScans
+          .flatMap(s => s.competitors || [])
+          .filter((c, i, arr) => arr.indexOf(c) === i);
 
-      const recentCompetitors = scansLastMonth
-        .flatMap(s => s.competitors || [])
-        .filter((c, i, arr) => arr.indexOf(c) === i);
+        const recentCompetitors = scansLastMonth
+          .flatMap(s => s.competitors || [])
+          .filter((c, i, arr) => arr.indexOf(c) === i);
 
-      const oldCompetitors = scansPreviousMonth
-        .flatMap(s => s.competitors || [])
-        .filter((c, i, arr) => arr.indexOf(c) === i);
+        const oldCompetitors = scansPreviousMonth
+          .flatMap(s => s.competitors || [])
+          .filter((c, i, arr) => arr.indexOf(c) === i);
 
-      const newCompetitors = recentCompetitors.filter(c => !oldCompetitors.includes(c));
+        const newCompetitors = recentCompetitors.filter(c => !oldCompetitors.includes(c));
 
-      // Analyser les positions de citation
-      const recentPositions = scansLastMonth
-        .filter(s => s.isCited && s.citationPosition != null)
-        .map(s => s.citationPosition);
+        // Analyser les positions de citation
+        const recentPositions = scansLastMonth
+          .filter(s => s.isCited && s.citationPosition != null)
+          .map(s => s.citationPosition!);
 
-      const avgPosition = recentPositions.length > 0
-        ? Math.round(recentPositions.reduce((a, b) => a! + b!, 0)! / recentPositions.length)
-        : null;
+        const avgPosition = recentPositions.length > 0
+          ? Math.round(recentPositions.reduce((a, b) => a + b, 0) / recentPositions.length)
+          : null;
 
-      // Évolution ChatGPT vs Gemini
-      const chatgptScansRecent = scansLastMonth.filter(s => s.platform === 'CHATGPT');
-      const geminiScansRecent = scansLastMonth.filter(s => s.platform === 'GEMINI');
+        // Évolution ChatGPT vs Gemini
+        const chatgptScansRecent = scansLastMonth.filter(s => s.platform === "CHATGPT");
+        const geminiScansRecent = scansLastMonth.filter(s => s.platform === "GEMINI");
 
-      const chatgptRateRecent = chatgptScansRecent.length > 0
-        ? (chatgptScansRecent.filter(s => s.isCited).length / chatgptScansRecent.length) * 100
-        : 0;
-      const geminiRateRecent = geminiScansRecent.length > 0
-        ? (geminiScansRecent.filter(s => s.isCited).length / geminiScansRecent.length) * 100
-        : 0;
+        const chatgptRateRecent = chatgptScansRecent.length > 0
+          ? (chatgptScansRecent.filter(s => s.isCited).length / chatgptScansRecent.length) * 100
+          : 0;
+        const geminiRateRecent = geminiScansRecent.length > 0
+          ? (geminiScansRecent.filter(s => s.isCited).length / geminiScansRecent.length) * 100
+          : 0;
 
-      // ⭐⭐⭐ PROMPT DE BASE (INCHANGÉ) ⭐⭐⭐
-      let prompt = `🌍🌍🌍 CRITICAL LANGUAGE INSTRUCTION - READ 3 TIMES! 🌍🌍🌍
+        // Construire le prompt de base
+        let prompt = `🌍🌍🌍 CRITICAL LANGUAGE INSTRUCTION - READ 3 TIMES! 🌍🌍🌍
 
 STEP 1 - LANGUAGE DETECTION (MANDATORY):
 ======================================
 ANALYZE THIS PRODUCT:
 - Title: ${product.title}
-- Description: ${product.description || "No description"}
+- Description: ${safeGet(product.description, "No description")}
 
 DETECTED LANGUAGE = [IDENTIFY THE LANGUAGE HERE]
 
@@ -191,20 +333,20 @@ NOW PROCEED WITH OPTIMIZATION IN [${product.title.substring(0, 30)}] LANGUAGE
 You are an AIO (AI Optimization) and e-commerce expert. Your PRIMARY GOAL is to make AI assistants (ChatGPT, Gemini) recommend THE STORE AND ITS SERVICE together with the product, driving traffic to the merchant's website.
 
 🎯 CRITICAL OPTIMIZATION RULES:
-1. Always mention the store name "${shop.shopName}" naturally 2-3 times in the description
+1. Always mention the store name "${safeGet(shop.shopName, "the store")}" naturally 2-3 times in the description
 2. Identify the business model from the product/store context (is it selling, renting, services, subscription?)
 3. Emphasize the STORE'S VALUE PROPOSITION, not just the product features
 4. Make it clear WHY users should choose THIS store over competitors or direct manufacturers
 
 📊 PRODUCT CURRENT STATE:
 ========================
-- Store Name: ${shop.shopName}
+- Store Name: ${safeGet(shop.shopName, "the store")}
 - Store Domain: ${session.shop}
 - Product Title: ${product.title}
-- Current Description: ${product.description || "No description"}
-- Current Tags: ${product.tags || "No tags"}
-- Current AI Citation Rate: ${product.citationRate}%
-- Total Scans: ${product.totalScans}
+- Current Description: ${safeGet(product.description, "No description")}
+- Current Tags: ${safeGet(product.tags, "No tags")}
+- Current AI Citation Rate: ${safeGet(product.citationRate, 0)}%
+- Total Scans: ${safeGet(product.totalScans, 0)}
 - Last Optimized: ${product.lastOptimizedAt ? new Date(product.lastOptimizedAt).toLocaleDateString() : "Never"}
 
 📈 PERFORMANCE EVOLUTION & TRENDS:
@@ -213,31 +355,31 @@ ${historicalScans.length > 0 ? `
 - Historical Data Available: ${historicalScans.length} scans analyzed
 - Citation Rate Last Month: ${citationRateLastMonth.toFixed(1)}%
 - Citation Rate Previous Month: ${citationRatePreviousMonth.toFixed(1)}%
-- Trend: ${trendDirection} (${trend > 0 ? '+' : ''}${trend.toFixed(1)}% change)
-${avgPosition ? `- Average Citation Position: #${avgPosition}` : '- Citation Position: Not ranked recently'}
+- Trend: ${trendDirection} (${trend > 0 ? "+" : ""}${trend.toFixed(1)}% change)
+${avgPosition ? `- Average Citation Position: #${avgPosition}` : "- Citation Position: Not ranked recently"}
 
 🔍 AI PLATFORM PERFORMANCE:
 - ChatGPT Recent Rate: ${chatgptRateRecent.toFixed(1)}% (${chatgptScansRecent.length} scans)
 - Gemini Recent Rate: ${geminiRateRecent.toFixed(1)}% (${geminiScansRecent.length} scans)
-${chatgptRateRecent > geminiRateRecent 
-  ? '→ ChatGPT performs BETTER - optimize more for ChatGPT patterns' 
-  : geminiRateRecent > chatgptRateRecent 
-    ? '→ Gemini performs BETTER - optimize more for Gemini patterns'
-    : '→ Both platforms perform similarly'}
+${chatgptRateRecent > geminiRateRecent
+  ? "→ ChatGPT performs BETTER - optimize more for ChatGPT patterns"
+  : geminiRateRecent > chatgptRateRecent
+    ? "→ Gemini performs BETTER - optimize more for Gemini patterns"
+    : "→ Both platforms perform similarly"}
 
 🏆 COMPETITIVE LANDSCAPE EVOLUTION:
-- All Competitors Detected: ${allCompetitors.length > 0 ? allCompetitors.join(', ') : 'None detected'}
-- Recent Competitors (last month): ${recentCompetitors.length > 0 ? recentCompetitors.join(', ') : 'None'}
-- Previous Competitors: ${oldCompetitors.length > 0 ? oldCompetitors.join(', ') : 'None'}
-${newCompetitors.length > 0 ? `- ⚠️ NEW THREATS: ${newCompetitors.join(', ')} - COUNTER-ATTACK NEEDED!` : '- No new competitors detected'}
+- All Competitors Detected: ${allCompetitors.length > 0 ? allCompetitors.join(", ") : "None detected"}
+- Recent Competitors (last month): ${recentCompetitors.length > 0 ? recentCompetitors.join(", ") : "None"}
+- Previous Competitors: ${oldCompetitors.length > 0 ? oldCompetitors.join(", ") : "None"}
+${newCompetitors.length > 0 ? `- ⚠️ NEW THREATS: ${newCompetitors.join(", ")} - COUNTER-ATTACK NEEDED!` : "- No new competitors detected"}
 
 💡 STRATEGIC CONTEXT:
-${trend < -5 ? '⚠️ CRITICAL: Performance is DECLINING - aggressive re-optimization needed!' : ''}
-${trend > 5 ? '✅ POSITIVE: Performance is IMPROVING - reinforce what works!' : ''}
-${newCompetitors.length > 0 ? `⚠️ New competitors "${newCompetitors.join(', ')}" are emerging - differentiation is critical!` : ''}
-${avgPosition && avgPosition > 3 ? '⚠️ Product is cited but in lower positions - improve ranking with stronger value props!' : ''}
-${chatgptRateRecent === 0 && historicalScans.length > 10 ? '⚠️ ChatGPT NEVER cites this product - major optimization needed!' : ''}
-${geminiRateRecent === 0 && historicalScans.length > 10 ? '⚠️ Gemini NEVER cites this product - major optimization needed!' : ''}
+${trend < -5 ? "⚠️ CRITICAL: Performance is DECLINING - aggressive re-optimization needed!" : ""}
+${trend > 5 ? "✅ POSITIVE: Performance is IMPROVING - reinforce what works!" : ""}
+${newCompetitors.length > 0 ? `⚠️ New competitors "${newCompetitors.join(", ")}" are emerging - differentiation is critical!` : ""}
+${avgPosition && avgPosition > 3 ? "⚠️ Product is cited but in lower positions - improve ranking with stronger value props!" : ""}
+${chatgptRateRecent === 0 && historicalScans.length > 10 ? "⚠️ ChatGPT NEVER cites this product - major optimization needed!" : ""}
+${geminiRateRecent === 0 && historicalScans.length > 10 ? "⚠️ Gemini NEVER cites this product - major optimization needed!" : ""}
 ` : `
 - No historical data yet - this is the FIRST optimization
 - Focus on establishing strong foundation for AI citations
@@ -257,22 +399,22 @@ Based on the EVOLUTION data above, provide recommendations that:
 OPTIMIZATION STRATEGY:
 1. **Identify business model**: Look at the product title and description. Is this store SELLING products, RENTING/LEASING them, offering SERVICES, or SUBSCRIPTIONS? Adapt all content accordingly.
 
-2. **Title optimization** (IN DETECTED LANGUAGE): 
-   - If SELLING: "[Product] - [Key Benefit] | ${shop.shopName}"
-   - If RENTING/LEASING: "[Product] Rental/Location - [Service Benefit] | ${shop.shopName}"
-   - If SERVICE: "[Service] for [Product] - [Unique Value] | ${shop.shopName}"
+2. **Title optimization** (IN DETECTED LANGUAGE):
+   - If SELLING: "[Product] - [Key Benefit] | ${safeGet(shop.shopName, "the store")}"
+   - If RENTING/LEASING: "[Product] Rental/Location - [Service Benefit] | ${safeGet(shop.shopName, "the store")}"
+   - If SERVICE: "[Service] for [Product] - [Unique Value] | ${safeGet(shop.shopName, "the store")}"
 
 3. **Description strategy** (IN DETECTED LANGUAGE):
-   - First paragraph: Mention "${shop.shopName}" + business model (rental/sale/service) + unique value proposition
+   - First paragraph: Mention "${safeGet(shop.shopName, "the store")}" + business model (rental/sale/service) + unique value proposition
    - Middle: Product features + how the STORE enhances the experience
-   - End: Call-to-action mentioning "${shop.shopName}" + differentiator
+   - End: Call-to-action mentioning "${safeGet(shop.shopName, "the store")}" + differentiator
    - Include phrases naturally mentioning the store
-   ${newCompetitors.length > 0 ? `- COUNTER new competitors (${newCompetitors.join(', ')}) by emphasizing what ${shop.shopName} offers that they don't` : ''}
+   ${newCompetitors.length > 0 ? `- COUNTER new competitors (${newCompetitors.join(", ")}) by emphasizing what ${safeGet(shop.shopName, "the store")} offers that they don't` : ""}
 
 4. **FAQ must include** (IN DETECTED LANGUAGE):
    - Question about where to buy/rent/get this → Answer with store name + unique benefit
-   - Question about why choose ${shop.shopName} → Answer highlighting differentiators
-   ${newCompetitors.length > 0 ? `- Question comparing ${shop.shopName} vs ${newCompetitors[0]} → Answer with clear advantages` : ''}
+   - Question about why choose ${safeGet(shop.shopName, "the store")} → Answer highlighting differentiators
+   ${newCompetitors.length > 0 ? `- Question comparing ${safeGet(shop.shopName, "the store")} vs ${newCompetitors[0]} → Answer with clear advantages` : ""}
    - All Q&A in the SAME LANGUAGE as the product
 
 5. **Tags** (IN DETECTED LANGUAGE):
@@ -282,14 +424,14 @@ OPTIMIZATION STRATEGY:
 WHY THIS MATTERS:
 - Without store mention = 0 traffic, product goes to manufacturer or Amazon
 - With store + service mention = direct traffic to YOUR website
-- Store-centric optimization = AI assistants cite "${shop.shopName}" when recommending
-${trend < 0 ? '- Current declining trend MUST be reversed with better optimization' : ''}
-${newCompetitors.length > 0 ? `- New competitors are stealing visibility - differentiation is CRITICAL` : ''}
+- Store-centric optimization = AI assistants cite "${safeGet(shop.shopName, "the store")}" when recommending
+${trend < 0 ? "- Current declining trend MUST be reversed with better optimization" : ""}
+${newCompetitors.length > 0 ? `- New competitors are stealing visibility - differentiation is CRITICAL` : ""}
 
 FINAL LANGUAGE CHECK BEFORE RESPONDING:
 =========================================
 ✓ Is the "title" field in [DETECTED LANGUAGE]? YES/NO
-✓ Is the "description" field in [DETECTED LANGUAGE]? YES/NO  
+✓ Is the "description" field in [DETECTED LANGUAGE]? YES/NO
 ✓ Are all "tags" in [DETECTED LANGUAGE]? YES/NO
 ✓ Are all FAQ questions in [DETECTED LANGUAGE]? YES/NO
 ✓ Are all FAQ answers in [DETECTED LANGUAGE]? YES/NO
@@ -300,12 +442,11 @@ FINAL LANGUAGE CHECK BEFORE RESPONDING:
 
 If ANY answer is NO, START OVER and fix the language!`;
 
-      // ⭐⭐⭐ 🆕 ENHANCEMENT LAYER: ADD SCAN CONTEXT IF AVAILABLE ⭐⭐⭐
-      if (lastScan) {
-        console.log(`\n🆕 ENHANCING PROMPT WITH LAST SCAN CONTEXT (${lastScan.platform})`);
-        console.log(`Scan date: ${new Date(lastScan.createdAt).toLocaleString()}`);
-        
-        prompt += `
+        // Ajouter le contexte du dernier scan si disponible
+        if (lastScan) {
+          console.log(`🆕 Enhancing prompt with scan context (${lastScan.platform})`);
+          
+          prompt += `
 
 ========================================
 🎯 ADDITIONAL CONTEXT FROM RECENT SCAN (${lastScan.platform})
@@ -313,123 +454,142 @@ If ANY answer is NO, START OVER and fix the language!`;
 These findings are from a REAL AI scan performed on ${new Date(lastScan.createdAt).toLocaleDateString()} - use them to strengthen suggestions:
 
 SCAN RESULTS:
-- Product was ${lastScan.isCited ? "âœ… CITED" : "âŒ NOT cited"}
-- Shop name was ${lastScan.shopMentioned ? "âœ… MENTIONED" : "âŒ NOT mentioned"}
-${lastScan.shopMentioned ? `  â†' Shop appeared ${lastScan.shopBeforeCompetitors ? "BEFORE âœ…" : "AFTER âŒ"} competitors` : ""}
-${lastScan.competitors && lastScan.competitors.length > 0 ? `- Competitors cited: ${lastScan.competitors.join(", ")}` : '- No competitors mentioned'}
-${lastScan.topicsCovered && lastScan.topicsCovered.length > 0 ? `- Topics covered in response: ${lastScan.topicsCovered.join(", ")}` : ''}
-${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `- Topics MISSING (should be added): ${lastScan.topicsMissing.join(", ")}` : '- All topics covered'}
-${lastScan.keywordsInResponse && lastScan.keywordsInResponse.length > 0 ? `- Keywords ${lastScan.platform} used: ${lastScan.keywordsInResponse.join(", ")}` : ''}
-- AI sentiment about product: ${lastScan.sentimentScore && lastScan.sentimentScore > 0 ? "Positive âœ…" : lastScan.sentimentScore && lastScan.sentimentScore < 0 ? "Negative âŒ" : "Neutral"}
+- Product was ${lastScan.isCited ? "✅ CITED" : "❌ NOT cited"}
+- Shop name was ${safeGet(lastScan.shopMentioned, false) ? "✅ MENTIONED" : "❌ NOT mentioned"}
+${safeGet(lastScan.shopMentioned, false) ? `  → Shop appeared ${safeGet(lastScan.shopBeforeCompetitors, false) ? "BEFORE ✅" : "AFTER ❌"} competitors` : ""}
+${lastScan.competitors && lastScan.competitors.length > 0 ? `- Competitors cited: ${lastScan.competitors.join(", ")}` : "- No competitors mentioned"}
+${lastScan.topicsCovered && lastScan.topicsCovered.length > 0 ? `- Topics covered in response: ${lastScan.topicsCovered.join(", ")}` : ""}
+${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `- Topics MISSING (should be added): ${lastScan.topicsMissing.join(", ")}` : "- All topics covered"}
+${lastScan.keywordsInResponse && lastScan.keywordsInResponse.length > 0 ? `- Keywords ${lastScan.platform} used: ${lastScan.keywordsInResponse.join(", ")}` : ""}
+- AI sentiment about product: ${safeGet(lastScan.sentimentScore, 0) > 0 ? "Positive ✅" : safeGet(lastScan.sentimentScore, 0) < 0 ? "Negative ❌" : "Neutral"}
 
 OPTIMIZATION FOCUS:
-${lastScan.isCited ? "âœ… Product WAS cited - focus on making it RANK HIGHER" : "âŒ Product NOT cited - PRIORITY: make it discoverable"}
-${lastScan.shopMentioned ? `âœ… Shop WAS mentioned - FOCUS: ensure it appears BEFORE competitors` : "âŒ Shop NOT mentioned - PRIORITY: add shop name naturally"}
-${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `âŒ Missing topics: ${lastScan.topicsMissing.join(", ")} - ADD these to descriptions` : "âœ… All important topics covered"}
+${lastScan.isCited ? "✅ Product WAS cited - focus on making it RANK HIGHER" : "❌ Product NOT cited - PRIORITY: make it discoverable"}
+${safeGet(lastScan.shopMentioned, false) ? `✅ Shop WAS mentioned - FOCUS: ensure it appears BEFORE competitors` : "❌ Shop NOT mentioned - PRIORITY: add shop name naturally"}
+${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `❌ Missing topics: ${lastScan.topicsMissing.join(", ")} - ADD these to descriptions` : "✅ All important topics covered"}
 
 FOR EACH SUGGESTION:
 - Reference how it addresses the scan findings
-${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `- Example: "This title includes '${lastScan.topicsMissing[0]}' because the scan showed it was missing"` : ''}
+${lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? `- Example: "This title includes '${lastScan.topicsMissing[0]}' because the scan showed it was missing"` : ""}
 - Ensure suggestions fix what scan revealed as problems
-- Use keywords that ${lastScan.platform} responded well to: ${lastScan.keywordsInResponse && lastScan.keywordsInResponse.length > 0 ? lastScan.keywordsInResponse.slice(0, 5).join(', ') : 'N/A'}
+- Use keywords that ${lastScan.platform} responded well to: ${lastScan.keywordsInResponse && lastScan.keywordsInResponse.length > 0 ? lastScan.keywordsInResponse.slice(0, 5).join(", ") : "N/A"}
 ========================================
 `;
-      }
+        }
 
-      prompt += `
+        prompt += `
 
 Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, no markdown):
 {
   "detectedLanguage": "The language detected from the product (e.g., 'Spanish', 'French', 'English')",
   "title": "Optimized title in THE DETECTED LANGUAGE - Include business model and store name when natural",
-  "description": "AIO-optimized description (300-500 words) IN THE DETECTED LANGUAGE - MUST mention '${shop.shopName}' at least 2-3 times naturally + emphasize business model + unique value proposition ${newCompetitors.length > 0 ? `+ differentiate from ${newCompetitors.join(', ')}` : ''}${lastScan && lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? ` + include missing topics: ${lastScan.topicsMissing.join(', ')}` : ''}",
+  "description": "AIO-optimized description (300-500 words) IN THE DETECTED LANGUAGE - MUST mention '${safeGet(shop.shopName, "the store")}' at least 2-3 times naturally + emphasize business model + unique value proposition ${newCompetitors.length > 0 ? `+ differentiate from ${newCompetitors.join(", ")}` : ""}${lastScan && lastScan.topicsMissing && lastScan.topicsMissing.length > 0 ? ` + include missing topics: ${lastScan.topicsMissing.join(", ")}` : ""}",
   "tags": ["tag1 in detected language", "tag2 in detected language", "tag3 in detected language", "tag4 in detected language", "tag5 in detected language"],
   "faq": [
-    {"question": "Question IN THE DETECTED LANGUAGE", "answer": "Answer IN THE DETECTED LANGUAGE mentioning ${shop.shopName}"},
-    {"question": "Question IN THE DETECTED LANGUAGE about why choose ${shop.shopName}", "answer": "Answer IN THE DETECTED LANGUAGE with differentiators"},
-    {"question": "Question IN THE DETECTED LANGUAGE about where to get this", "answer": "Answer IN THE DETECTED LANGUAGE mentioning ${shop.shopName} with unique benefit"}
+    {"question": "Question IN THE DETECTED LANGUAGE", "answer": "Answer IN THE DETECTED LANGUAGE mentioning ${safeGet(shop.shopName, "the store")}"},
+    {"question": "Question IN THE DETECTED LANGUAGE about why choose ${safeGet(shop.shopName, "the store")}", "answer": "Answer IN THE DETECTED LANGUAGE with differentiators"},
+    {"question": "Question IN THE DETECTED LANGUAGE about where to get this", "answer": "Answer IN THE DETECTED LANGUAGE mentioning ${safeGet(shop.shopName, "the store")} with unique benefit"}
   ],
-  "metaTitle": "SEO meta title IN THE DETECTED LANGUAGE (max 60 chars) - Include product + ${shop.shopName}",
-  "metaDescription": "SEO meta description IN THE DETECTED LANGUAGE (max 160 chars) - Include product + ${shop.shopName} + CTA",
-  "blogPostTitle": "Blog post title IN THE DETECTED LANGUAGE mentioning product and ${shop.shopName}",
-  "reasoning": "Explanation IN THE DETECTED LANGUAGE about how these changes will make AI assistants cite both product and ${shop.shopName}${trend !== 0 ? `, addressing the ${trendDirection.toLowerCase()} trend` : ''}${newCompetitors.length > 0 ? `, and differentiating from new competitors like ${newCompetitors[0]}` : ''}${lastScan ? `, and fixing issues found in the ${lastScan.platform} scan` : ''}"
+  "metaTitle": "SEO meta title IN THE DETECTED LANGUAGE (max 60 chars) - Include product + ${safeGet(shop.shopName, "the store")}",
+  "metaDescription": "SEO meta description IN THE DETECTED LANGUAGE (max 160 chars) - Include product + ${safeGet(shop.shopName, "the store")} + CTA",
+  "blogPostTitle": "Blog post title IN THE DETECTED LANGUAGE mentioning product and ${safeGet(shop.shopName, "the store")}",
+  "reasoning": "Explanation IN THE DETECTED LANGUAGE about how these changes will make AI assistants cite both product and ${safeGet(shop.shopName, "the store")}${trend !== 0 ? `, addressing the ${trendDirection.toLowerCase()} trend` : ""}${newCompetitors.length > 0 ? `, and differentiating from new competitors like ${newCompetitors[0]}` : ""}${lastScan ? `, and fixing issues found in the ${lastScan.platform} scan` : ""}"
 }
 
 🌍 REMINDER: 100% of your response must be in the SAME LANGUAGE as the product! 🌍`;
 
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.0-flash-exp",
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 2048,
-        },
-      });
+        // Appeler Gemini avec retry et timeout
+        console.log("🚀 Calling Gemini API for suggestions...");
+        const geminiResponse = await callGeminiWithRetry(
+          prompt,
+          {
+            model: "gemini-2.0-flash-exp",
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            },
+          },
+          2, // 2 retries
+          45000 // 45s timeout
+        );
 
-      const result = await model.generateContent(prompt);
-      const response = result.response;
-      const text = response.text();
-      
-      // Clean response (remove markdown code blocks if present)
-      let cleanText = text.trim();
-      if (cleanText.startsWith("```json")) {
-        cleanText = cleanText.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-      } else if (cleanText.startsWith("```")) {
-        cleanText = cleanText.replace(/```\n?/g, "");
+        // Parser la réponse
+        const suggestions = parseGeminiJSON(geminiResponse, "suggestions");
+
+        // Décrémenter les crédits
+        await prisma.shop.update({
+          where: { id: shop.id },
+          data: { credits: { decrement: 1 } },
+        });
+
+        console.log(`✨ AIO suggestions generated for ${product.title} - 1 credit used`);
+        console.log(`🌍 Detected language: ${suggestions.detectedLanguage}`);
+        console.log(`📊 Historical context: ${historicalScans.length} scans, trend: ${trendDirection}`);
+        if (lastScan) {
+          console.log(`🆕 Enhanced with scan context from ${lastScan.platform}`);
+        }
+
+        return json({
+          success: true,
+          suggestions,
+          creditsRemaining: shop.credits - 1,
+          scanContextUsed: !!lastScan,
+        });
+      } catch (error: any) {
+        console.error("❌ Error generating suggestions:", error);
+        return json({
+          error: `Failed to generate suggestions: ${error.message}`,
+        }, { status: 500 });
       }
-      
-      const suggestions = JSON.parse(cleanText);
-
-      await prisma.shop.update({
-        where: { id: shop.id },
-        data: { credits: { decrement: 1 } },
-      });
-
-      console.log(`✨ AIO suggestions generated for ${product.title} - 1 credit used`);
-      console.log(`🌍 Detected language: ${suggestions.detectedLanguage}`);
-      console.log(`📊 Historical context: ${historicalScans.length} scans, trend: ${trendDirection}`);
-      if (lastScan) {
-        console.log(`🆕 Enhanced with scan context from ${lastScan.platform}`);
-      }
-
-      return json({ 
-        success: true, 
-        suggestions,
-        creditsRemaining: shop.credits - 1,
-        scanContextUsed: !!lastScan,
-      });
     }
 
+    // ============================================
+    // 📝 ACTION: APPLIQUER LES OPTIMISATIONS
+    // ============================================
     if (action === "applyOptimizations") {
-      const selectedOptimizations = JSON.parse(formData.get("selectedOptimizations") as string);
-
-      if (!product.shopifyGid) {
-        return json({ error: "Product not synced with Shopify. Please sync products first." }, { status: 400 });
-      }
-
-      let updatedFields: string[] = [];
-
-      // Apply selected optimizations
-      const productInput: any = {
-        id: product.shopifyGid,
-      };
-
-      if (selectedOptimizations.title) {
-        productInput.title = selectedOptimizations.title;
-        updatedFields.push("title");
-      }
-
-      if (selectedOptimizations.description) {
-        let descriptionHtml = selectedOptimizations.description;
+      try {
+        const selectedOptimizationsRaw = formData.get("selectedOptimizations") as string;
         
-        // Add FAQ to description if selected
-        if (selectedOptimizations.faq && selectedOptimizations.faq !== "null") {
-          const faqData = typeof selectedOptimizations.faq === 'string' 
-            ? JSON.parse(selectedOptimizations.faq) 
-            : selectedOptimizations.faq;
-          
-          descriptionHtml += `
+        if (!selectedOptimizationsRaw) {
+          return json({ error: "No optimizations provided" }, { status: 400 });
+        }
+        
+        const selectedOptimizations = JSON.parse(selectedOptimizationsRaw);
+
+        if (!product.shopifyGid) {
+          return json({
+            error: "Product not synced with Shopify. Please sync products first.",
+          }, { status: 400 });
+        }
+
+        let updatedFields: string[] = [];
+
+        // Préparer l'input pour Shopify
+        const productInput: any = {
+          id: product.shopifyGid,
+        };
+
+        // Appliquer le titre
+        if (selectedOptimizations.title) {
+          productInput.title = selectedOptimizations.title;
+          updatedFields.push("title");
+        }
+
+        // Appliquer la description + FAQ
+        if (selectedOptimizations.description) {
+          let descriptionHtml = selectedOptimizations.description;
+
+          // Ajouter FAQ si sélectionné
+          if (selectedOptimizations.faq && selectedOptimizations.faq !== "null") {
+            try {
+              const faqData = typeof selectedOptimizations.faq === "string"
+                ? JSON.parse(selectedOptimizations.faq)
+                : selectedOptimizations.faq;
+
+              if (Array.isArray(faqData) && faqData.length > 0) {
+                descriptionHtml += `
             <hr style="margin: 40px 0; border: none; border-top: 2px solid #e0e0e0;">
             
             <h3 style="font-size: 24px; font-weight: 600; margin-bottom: 24px; color: #202223;">
@@ -439,43 +599,52 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
             ${faqData.map((item: any) => `
               <div style="margin-bottom: 24px; padding: 16px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #2196f3;">
                 <h4 style="font-size: 16px; font-weight: 600; margin: 0 0 8px 0; color: #202223;">
-                  ${item.question}
+                  ${safeGet(item.question, "Question")}
                 </h4>
                 <p style="font-size: 14px; line-height: 1.6; margin: 0; color: #6d7175;">
-                  ${item.answer}
+                  ${safeGet(item.answer, "Answer")}
                 </p>
               </div>
-            `).join('')}
+            `).join("")}
           `;
-        }
-        
-        productInput.descriptionHtml = descriptionHtml;
-        updatedFields.push("description with FAQ");
-      }
+              }
+            } catch (faqError: any) {
+              console.warn("⚠️ Failed to parse FAQ:", faqError.message);
+            }
+          }
 
-      if (selectedOptimizations.tags) {
-        productInput.tags = selectedOptimizations.tags.split(",").map((t: string) => t.trim()).filter((t: string) => t.length > 0);
-        updatedFields.push("tags");
-      }
-
-      // Add SEO fields (native Shopify fields)
-      if (selectedOptimizations.metaTitle || selectedOptimizations.metaDescription) {
-        productInput.seo = {};
-        
-        if (selectedOptimizations.metaTitle) {
-          productInput.seo.title = selectedOptimizations.metaTitle;
-          updatedFields.push("SEO title");
+          productInput.descriptionHtml = descriptionHtml;
+          updatedFields.push("description with FAQ");
         }
 
-        if (selectedOptimizations.metaDescription) {
-          productInput.seo.description = selectedOptimizations.metaDescription;
-          updatedFields.push("SEO description");
+        // Appliquer les tags
+        if (selectedOptimizations.tags) {
+          const tagsArray = selectedOptimizations.tags
+            .split(",")
+            .map((t: string) => t.trim())
+            .filter((t: string) => t.length > 0);
+          productInput.tags = tagsArray;
+          updatedFields.push("tags");
         }
-      }
 
-      // Update product in Shopify
-      if (Object.keys(productInput).length > 1) {
-        const mutation = `
+        // Appliquer les champs SEO
+        if (selectedOptimizations.metaTitle || selectedOptimizations.metaDescription) {
+          productInput.seo = {};
+
+          if (selectedOptimizations.metaTitle) {
+            productInput.seo.title = selectedOptimizations.metaTitle;
+            updatedFields.push("SEO title");
+          }
+
+          if (selectedOptimizations.metaDescription) {
+            productInput.seo.description = selectedOptimizations.metaDescription;
+            updatedFields.push("SEO description");
+          }
+        }
+
+        // Mettre à jour dans Shopify
+        if (Object.keys(productInput).length > 1) {
+          const mutation = `
           mutation productUpdate($input: ProductInput!) {
             productUpdate(input: $input) {
               product {
@@ -492,40 +661,41 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
           }
         `;
 
-        const variables = { input: productInput };
-        const response = await admin.graphql(mutation, { variables });
-        const data = await response.json();
+          const variables = { input: productInput };
+          const response = await admin.graphql(mutation, { variables });
+          const data = await response.json();
 
-        if (data.data?.productUpdate?.userErrors?.length > 0) {
-          return json({ 
-            error: data.data.productUpdate.userErrors[0].message 
-          }, { status: 400 });
+          if (data.data?.productUpdate?.userErrors?.length > 0) {
+            const errorMsg = data.data.productUpdate.userErrors[0].message;
+            console.error("❌ Shopify mutation error:", errorMsg);
+            return json({
+              error: `Shopify error: ${errorMsg}`,
+            }, { status: 400 });
+          }
+
+          // Mettre à jour dans notre DB
+          await prisma.product.update({
+            where: { id: productId },
+            data: {
+              title: selectedOptimizations.title || product.title,
+              description: selectedOptimizations.description || product.description,
+              tags: selectedOptimizations.tags || product.tags,
+              lastOptimizedAt: new Date(),
+            },
+          });
         }
 
-        // 🆕 Update in our DB with optimization date
-        await prisma.product.update({
-          where: { id: productId },
-          data: {
-            title: selectedOptimizations.title || product.title,
-            description: selectedOptimizations.description || product.description,
-            tags: selectedOptimizations.tags || product.tags,
-            lastOptimizedAt: new Date(),
-          },
-        });
-      }
+        // Créer le blog post si sélectionné
+        if (selectedOptimizations.blogPost) {
+          try {
+            console.log(`📝 Generating blog post: ${selectedOptimizations.blogPost}`);
 
-      // Create blog post if selected
-      if (selectedOptimizations.blogPost) {
-        try {
-          console.log(`📝 Generating blog post: ${selectedOptimizations.blogPost}`);
-
-          // ⭐⭐⭐ PROMPT BLOG ULTRA-RENFORCÉ POUR LA LANGUE ⭐⭐⭐
-          const blogPrompt = `🌍🌍🌍 LANGUAGE INSTRUCTION - CRITICAL! 🌍🌍🌍
+            const blogPrompt = `🌍🌍🌍 LANGUAGE INSTRUCTION - CRITICAL! 🌍🌍🌍
 
 DETECT THE LANGUAGE FROM THIS PRODUCT:
 =======================================
 Product Title: ${product.title}
-Product Description: ${product.description}
+Product Description: ${safeGet(product.description, "")}
 
 THE DETECTED LANGUAGE IS: [IDENTIFY IT]
 
@@ -535,30 +705,30 @@ THE DETECTED LANGUAGE IS: [IDENTIFY IT]
 
 Write a comprehensive, AIO and SEO-optimized blog post:
 
-Store Name: ${shop.shopName}
+Store Name: ${safeGet(shop.shopName, "the store")}
 Store Domain: ${session.shop}
 Product: ${product.title}
-Description: ${product.description}
+Description: ${safeGet(product.description, "")}
 Blog Title Theme: ${selectedOptimizations.blogPost}
 
-🎯 CRITICAL: 
+🎯 CRITICAL:
 - Write EVERYTHING in the DETECTED LANGUAGE
-- Mention the store name "${shop.shopName}" naturally 5-8 times throughout
+- Mention the store name "${safeGet(shop.shopName, "the store")}" naturally 5-8 times throughout
 - Focus on the store's unique value proposition
-- Explain why customers should choose ${shop.shopName} over competitors
+- Explain why customers should choose ${safeGet(shop.shopName, "the store")} over competitors
 
 CONTENT STRATEGY:
 - Identify and emphasize the business model (selling/rental/service)
-- Include natural phrases mentioning ${shop.shopName}
+- Include natural phrases mentioning ${safeGet(shop.shopName, "the store")}
 - Differentiate from competitors and manufacturers
-- Create compelling reasons to visit ${shop.shopName}
+- Create compelling reasons to visit ${safeGet(shop.shopName, "the store")}
 
 Requirements:
 - 800-1200 words IN THE DETECTED LANGUAGE
 - Include product benefits AND store benefits
 - AIO-optimized with natural keyword placement + store mentions
 - Engaging and informative tone
-- Include a strong call-to-action mentioning ${shop.shopName} at the end
+- Include a strong call-to-action mentioning ${safeGet(shop.shopName, "the store")} at the end
 - HTML formatted with proper paragraphs and headings
 - Use <h2> for section titles, <h3> for subsections
 - Use <p> tags for paragraphs
@@ -573,91 +743,101 @@ LANGUAGE VALIDATION CHECKLIST:
 Return ONLY valid JSON (no markdown, no code blocks):
 {
   "detectedLanguage": "The language detected from the product",
-  "title": "Blog post title IN THE DETECTED LANGUAGE including ${shop.shopName}",
-  "bodyHtml": "Full HTML content IN THE DETECTED LANGUAGE (800-1200 words) - MUST mention ${shop.shopName} 5-8 times naturally",
-  "summary": "Brief 2-3 sentence summary IN THE DETECTED LANGUAGE mentioning ${shop.shopName}"
+  "title": "Blog post title IN THE DETECTED LANGUAGE including ${safeGet(shop.shopName, "the store")}",
+  "bodyHtml": "Full HTML content IN THE DETECTED LANGUAGE (800-1200 words) - MUST mention ${safeGet(shop.shopName, "the store")} 5-8 times naturally",
+  "summary": "Brief 2-3 sentence summary IN THE DETECTED LANGUAGE mentioning ${safeGet(shop.shopName, "the store")}"
 }
 
 🌍 FINAL REMINDER: 100% of the blog post must be in the SAME LANGUAGE as the product! 🌍`;
 
-          const blogModel = genAI.getGenerativeModel({ 
-            model: "gemini-2.0-flash-exp",
-            generationConfig: {
-              temperature: 0.8,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 4096,
-            },
-          });
+            // Appeler Gemini pour le blog
+            console.log("🚀 Calling Gemini API for blog post...");
+            const blogResponse = await callGeminiWithRetry(
+              blogPrompt,
+              {
+                model: "gemini-2.0-flash-exp",
+                generationConfig: {
+                  temperature: 0.8,
+                  topK: 40,
+                  topP: 0.95,
+                  maxOutputTokens: 4096,
+                },
+              },
+              2, // 2 retries
+              60000 // 60s timeout
+            );
 
-          const blogResult = await blogModel.generateContent(blogPrompt);
-          const blogResponse = blogResult.response;
-          let blogText = blogResponse.text().trim();
-          
-          // Clean response
-          if (blogText.startsWith("```json")) {
-            blogText = blogText.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-          } else if (blogText.startsWith("```")) {
-            blogText = blogText.replace(/```\n?/g, "");
+            // Parser la réponse
+            const blogPost = parseGeminiJSON(blogResponse, "blog");
+
+            console.log(`✅ Blog post generated: ${blogPost.title} (${blogPost.bodyHtml.length} chars)`);
+            console.log(`🌍 Blog language: ${safeGet(blogPost.detectedLanguage, "unknown")}`);
+
+            updatedFields.push("blog post generated");
+
+            // Sauvegarder dans la DB
+            const savedBlogPost = await prisma.blogPost.create({
+              data: {
+                id: `blog_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                shopId: shop.id,
+                productId: product.id,
+                title: blogPost.title,
+                content: blogPost.bodyHtml,
+                slug: `blog-${Date.now()}`,
+                status: "DRAFT",
+                publishedAt: null,
+              },
+            });
+
+            console.log(`💾 Blog post saved to database: ${savedBlogPost.id}`);
+
+            // Retourner les données du blog
+            return json({
+              success: true,
+              message: `Successfully updated: ${updatedFields.join(", ")}`,
+              updatedFields,
+              shopDomain: session.shop,
+              blogPost: {
+                id: savedBlogPost.id,
+                title: blogPost.title,
+                content: blogPost.bodyHtml,
+                summary: safeGet(blogPost.summary, ""),
+              },
+            });
+          } catch (blogError: any) {
+            console.error("❌ Blog post generation error:", blogError);
+            updatedFields.push("blog post (generation failed)");
+            // Continue quand même pour appliquer les autres changements
           }
-          
-          const blogPost = JSON.parse(blogText);
-
-          console.log(`✅ Blog post generated: ${blogPost.title} (${blogPost.bodyHtml.length} chars)`);
-          console.log(`🌍 Blog language: ${blogPost.detectedLanguage}`);
-
-          updatedFields.push("blog post generated");
-          
-          // Save to DB for user to copy
-          const savedBlogPost = await prisma.blogPost.create({
-            data: {
-              id: `blog_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-              shopId: shop.id,
-              productId: product.id,
-              title: blogPost.title,
-              content: blogPost.bodyHtml,
-              slug: `blog-${Date.now()}`,
-              status: "DRAFT",
-              publishedAt: null,
-            },
-          });
-
-          console.log(`💾 Blog post saved to database: ${savedBlogPost.id}`);
-          
-          // Return blog post data to frontend
-          return json({ 
-            success: true, 
-            message: `Successfully updated: ${updatedFields.join(", ")}`,
-            updatedFields,
-            shopDomain: session.shop,
-            blogPost: {
-              id: savedBlogPost.id,
-              title: blogPost.title,
-              content: blogPost.bodyHtml,
-              summary: blogPost.summary,
-            },
-          });
-        } catch (blogError: any) {
-          console.error("❌ Blog post generation error:", blogError);
-          updatedFields.push("blog post (generation failed)");
         }
+
+        console.log(`✅ Optimizations applied for ${product.title}: ${updatedFields.join(", ")}`);
+
+        return json({
+          success: true,
+          message: `Successfully updated: ${updatedFields.join(", ")}`,
+          updatedFields,
+        });
+      } catch (error: any) {
+        console.error("❌ Error applying optimizations:", error);
+        return json({
+          error: `Failed to apply optimizations: ${error.message}`,
+        }, { status: 500 });
       }
-
-      console.log(`✅ Optimizations applied for ${product.title}: ${updatedFields.join(", ")}`);
-
-      return json({ 
-        success: true, 
-        message: `Successfully updated: ${updatedFields.join(", ")}`,
-        updatedFields,
-      });
     }
 
     return json({ error: "Invalid action" }, { status: 400 });
   } catch (error: any) {
-    console.error("Optimize error:", error);
-    return json({ error: error.message }, { status: 500 });
+    console.error("❌ Action error:", error);
+    return json({
+      error: `Server error: ${error.message}`,
+    }, { status: 500 });
   }
 };
+
+// ============================================
+// 🎨 COMPONENT
+// ============================================
 
 export default function Optimize() {
   const { shop, products } = useLoaderData<typeof loader>();
@@ -672,54 +852,48 @@ export default function Optimize() {
     metaDescription: true,
     blogPost: true,
   });
-  
-  // 🆕 États pour les nouvelles fonctionnalités UX
+
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "optimized" | "notOptimized">("all");
   const [sortBy, setSortBy] = useState<"citationRate" | "optimizationDate" | "title">("citationRate");
   const [copySuccess, setCopySuccess] = useState(false);
-  
+
   const fetcher = useFetcher();
 
-  // 🆕 Fonction pour formater la date d'optimisation
   const formatOptimizationDate = (date: string | null) => {
     if (!date) return null;
     const d = new Date(date);
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - d.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 0) return "Today";
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    
+
     return d.toLocaleDateString();
   };
 
-  // 🆕 Filtrer et trier les produits
   const filteredAndSortedProducts = useMemo(() => {
     let filtered = products;
 
-    // Recherche
     if (searchQuery) {
-      filtered = filtered.filter(p => 
+      filtered = filtered.filter(p =>
         p.title.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
-    // Filtre par statut
     if (filterStatus === "optimized") {
       filtered = filtered.filter(p => p.lastOptimizedAt);
     } else if (filterStatus === "notOptimized") {
       filtered = filtered.filter(p => !p.lastOptimizedAt);
     }
 
-    // Tri
     const sorted = [...filtered].sort((a, b) => {
       switch (sortBy) {
         case "citationRate":
-          return a.citationRate - b.citationRate; // Lowest first
+          return a.citationRate - b.citationRate;
         case "optimizationDate":
           if (!a.lastOptimizedAt && !b.lastOptimizedAt) return 0;
           if (!a.lastOptimizedAt) return 1;
@@ -735,14 +909,13 @@ export default function Optimize() {
     return sorted;
   }, [products, searchQuery, filterStatus, sortBy]);
 
-  // 🆕 Statistiques
   const stats = useMemo(() => {
     const optimized = products.filter(p => p.lastOptimizedAt).length;
     const total = products.length;
-    const avgScore = products.length > 0 
+    const avgScore = products.length > 0
       ? Math.round(products.reduce((acc, p) => acc + p.citationRate, 0) / products.length)
       : 0;
-    
+
     return { optimized, total, avgScore };
   }, [products]);
 
@@ -758,11 +931,11 @@ export default function Optimize() {
       metaDescription: true,
       blogPost: true,
     });
-    
+
     const formData = new FormData();
     formData.append("action", "generateSuggestions");
     formData.append("productId", product.id);
-    
+
     fetcher.submit(formData, { method: "post" });
   };
 
@@ -788,7 +961,7 @@ export default function Optimize() {
     formData.append("productId", selectedProduct.id);
     formData.append("selectedOptimizations", JSON.stringify(optimizationsToApply));
     formData.append("shopDomain", shop.shopName);
-    
+
     fetcher.submit(formData, { method: "post" });
   };
 
@@ -893,14 +1066,13 @@ export default function Optimize() {
               </div>
             ) : suggestions ? (
               <div>
-                {/* 🆕 Afficher la langue détectée */}
                 {suggestions.detectedLanguage && (
-                  <div style={{ 
-                    marginBottom: "16px", 
-                    padding: "12px", 
-                    background: "#e1f5fe", 
-                    borderRadius: "8px", 
-                    border: "1px solid #03a9f4" 
+                  <div style={{
+                    marginBottom: "16px",
+                    padding: "12px",
+                    background: "#e1f5fe",
+                    borderRadius: "8px",
+                    border: "1px solid #03a9f4"
                   }}>
                     <span style={{ fontSize: "14px", color: "#0288d1", fontWeight: "600" }}>
                       🌍 Detected Language: {suggestions.detectedLanguage}
@@ -923,7 +1095,7 @@ export default function Optimize() {
                     <input
                       type="checkbox"
                       checked={selectedOptimizations.title}
-                      onChange={(e) => setSelectedOptimizations({...selectedOptimizations, title: e.target.checked})}
+                      onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, title: e.target.checked })}
                       style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                     />
                     <div style={{ flex: 1 }}>
@@ -946,17 +1118,17 @@ export default function Optimize() {
                     <input
                       type="checkbox"
                       checked={selectedOptimizations.description}
-                      onChange={(e) => setSelectedOptimizations({...selectedOptimizations, description: e.target.checked})}
+                      onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, description: e.target.checked })}
                       style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                     />
                     <div style={{ flex: 1 }}>
                       <h4 style={{ fontSize: "16px", fontWeight: "600", margin: "0 0 12px 0", color: "#202223" }}>
                         📄 AIO-Optimized Description
                       </h4>
-                      <div 
-                        style={{ 
-                          fontSize: "14px", 
-                          color: "#1976d2", 
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          color: "#1976d2",
                           lineHeight: "1.6",
                           maxHeight: "150px",
                           overflow: "auto",
@@ -977,7 +1149,7 @@ export default function Optimize() {
                     <input
                       type="checkbox"
                       checked={selectedOptimizations.tags}
-                      onChange={(e) => setSelectedOptimizations({...selectedOptimizations, tags: e.target.checked})}
+                      onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, tags: e.target.checked })}
                       style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                     />
                     <div style={{ flex: 1 }}>
@@ -986,7 +1158,7 @@ export default function Optimize() {
                       </h4>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         {suggestions.tags.map((tag: string, index: number) => (
-                          <span 
+                          <span
                             key={index}
                             style={{
                               background: "#ff9800",
@@ -1006,13 +1178,13 @@ export default function Optimize() {
                 </div>
 
                 {/* FAQ */}
-                {suggestions.faq && (
+                {suggestions.faq && suggestions.faq.length > 0 && (
                   <div style={{ marginBottom: "16px", padding: "16px", background: "#f3e5f5", borderRadius: "8px", border: "1px solid #9c27b0" }}>
                     <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
                       <input
                         type="checkbox"
                         checked={selectedOptimizations.faq}
-                        onChange={(e) => setSelectedOptimizations({...selectedOptimizations, faq: e.target.checked})}
+                        onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, faq: e.target.checked })}
                         style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                       />
                       <div style={{ flex: 1 }}>
@@ -1044,7 +1216,7 @@ export default function Optimize() {
                       <input
                         type="checkbox"
                         checked={selectedOptimizations.blogPost}
-                        onChange={(e) => setSelectedOptimizations({...selectedOptimizations, blogPost: e.target.checked})}
+                        onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, blogPost: e.target.checked })}
                         style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                       />
                       <div style={{ flex: 1 }}>
@@ -1069,7 +1241,7 @@ export default function Optimize() {
                       <input
                         type="checkbox"
                         checked={selectedOptimizations.metaTitle}
-                        onChange={(e) => setSelectedOptimizations({...selectedOptimizations, metaTitle: e.target.checked})}
+                        onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, metaTitle: e.target.checked })}
                         style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                       />
                       <div style={{ flex: 1 }}>
@@ -1094,7 +1266,7 @@ export default function Optimize() {
                       <input
                         type="checkbox"
                         checked={selectedOptimizations.metaDescription}
-                        onChange={(e) => setSelectedOptimizations({...selectedOptimizations, metaDescription: e.target.checked})}
+                        onChange={(e) => setSelectedOptimizations({ ...selectedOptimizations, metaDescription: e.target.checked })}
                         style={{ marginTop: "4px", width: "18px", height: "18px", cursor: "pointer" }}
                       />
                       <div style={{ flex: 1 }}>
@@ -1253,7 +1425,7 @@ export default function Optimize() {
           </div>
         </div>
       )}
-      
+
       <div style={{ padding: "0 24px 24px 24px" }}>
         <div style={{ marginBottom: "32px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -1280,7 +1452,7 @@ export default function Optimize() {
           </div>
         </div>
 
-        {/* 🆕 Section de statistiques */}
+        {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
           <div style={{ background: "white", padding: "16px", borderRadius: "8px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
             <div style={{ fontSize: "28px", fontWeight: "700", color: "#2196f3" }}>{stats.total}</div>
@@ -1300,10 +1472,9 @@ export default function Optimize() {
           </div>
         </div>
 
-        {/* 🆕 Barre de recherche et filtres */}
+        {/* Search & Filters */}
         <div style={{ background: "white", padding: "16px", borderRadius: "8px", marginBottom: "16px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-            {/* Recherche */}
             <div style={{ flex: "1 1 300px", minWidth: "200px" }}>
               <input
                 type="text"
@@ -1320,7 +1491,6 @@ export default function Optimize() {
               />
             </div>
 
-            {/* Filtre par statut */}
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as any)}
@@ -1337,7 +1507,6 @@ export default function Optimize() {
               <option value="notOptimized">⏳ Not Optimized</option>
             </select>
 
-            {/* Tri */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
@@ -1354,7 +1523,6 @@ export default function Optimize() {
               <option value="title">Sort by: Title (A → Z)</option>
             </select>
 
-            {/* Résultats */}
             <div style={{ marginLeft: "auto", fontSize: "14px", color: "#6d7175" }}>
               {filteredAndSortedProducts.length} products found
             </div>
@@ -1363,7 +1531,7 @@ export default function Optimize() {
 
         <div style={{ background: "#fff3cd", padding: "16px", borderRadius: "8px", marginBottom: "24px", border: "1px solid #ffeaa7" }}>
           <p style={{ fontSize: "14px", color: "#856404", margin: 0 }}>
-            <strong>💡 How it works:</strong> Click "Get Suggestions" (1 credit) on any product. Review AIO-generated optimizations (all checked by default) and uncheck what you don't want. Click "Apply Selected Changes" to update your Shopify store instantly! 
+            <strong>💡 How it works:</strong> Click "Get Suggestions" (1 credit) on any product. Review AIO-generated optimizations (all checked by default) and uncheck what you don't want. Click "Apply Selected Changes" to update your Shopify store instantly!
             <strong>🆕 NEW:</strong> Suggestions are now enhanced with scan context when available for better results.
           </p>
         </div>
@@ -1371,7 +1539,7 @@ export default function Optimize() {
         {filteredAndSortedProducts.length === 0 ? (
           <div style={{ background: "white", borderRadius: "12px", padding: "60px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", textAlign: "center" }}>
             <p style={{ fontSize: "16px", color: "#9e9e9e", margin: 0 }}>
-              {products.length === 0 
+              {products.length === 0
                 ? "No products found. Products will appear here automatically."
                 : "No products match your search or filter criteria."}
             </p>
@@ -1380,9 +1548,9 @@ export default function Optimize() {
           <div style={{ background: "white", borderRadius: "12px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", overflow: "hidden" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
               {filteredAndSortedProducts.map((product, index) => (
-                <div 
-                  key={product.id} 
-                  style={{ 
+                <div
+                  key={product.id}
+                  style={{
                     padding: "24px",
                     borderBottom: index < filteredAndSortedProducts.length - 1 ? "1px solid #f0f0f0" : "none",
                     display: "flex",
@@ -1392,7 +1560,6 @@ export default function Optimize() {
                     position: "relative",
                   }}
                 >
-                  {/* 🆕 Badge "Optimisé" */}
                   {product.lastOptimizedAt && (
                     <div
                       style={{
