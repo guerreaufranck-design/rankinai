@@ -51,8 +51,7 @@ const BILLING_PLANS = {
     ],
     color: "#2196f3",
     popular: false,
-    cta: "Start Starter Plan",
-    trialDays: 7
+    cta: "Start Starter Plan"
   },
   STARTER_ANNUAL: {
     id: "STARTER_ANNUAL",
@@ -77,7 +76,6 @@ const BILLING_PLANS = {
     color: "#2196f3",
     popular: false,
     cta: "Start Starter Plan",
-    trialDays: 7,
     savings: 58
   },
   GROWTH_MONTHLY: {
@@ -101,8 +99,7 @@ const BILLING_PLANS = {
     color: "#ff9800",
     popular: true,
     badge: "MOST POPULAR",
-    cta: "Start Growth Plan",
-    trialDays: 7
+    cta: "Start Growth Plan"
   },
   GROWTH_ANNUAL: {
     id: "GROWTH_ANNUAL",
@@ -127,7 +124,6 @@ const BILLING_PLANS = {
     popular: true,
     badge: "MOST POPULAR",
     cta: "Start Growth Plan",
-    trialDays: 7,
     savings: 158
   },
   PRO_MONTHLY: {
@@ -150,8 +146,7 @@ const BILLING_PLANS = {
     limitations: [],
     color: "#9c27b0",
     popular: false,
-    cta: "Start Pro Plan",
-    trialDays: 7
+    cta: "Start Pro Plan"
   },
   PRO_ANNUAL: {
     id: "PRO_ANNUAL",
@@ -175,7 +170,6 @@ const BILLING_PLANS = {
     color: "#9c27b0",
     popular: false,
     cta: "Start Pro Plan",
-    trialDays: 7,
     savings: 398
   }
 };
@@ -186,14 +180,13 @@ const CREATE_SUBSCRIPTION_MUTATION = `
     $name: String!
     $lineItems: [AppSubscriptionLineItemInput!]!
     $returnUrl: URL!
-    $trialDays: Int
+    $test: Boolean
   ) {
     appSubscriptionCreate(
       name: $name
       lineItems: $lineItems
       returnUrl: $returnUrl
-      trialDays: $trialDays
-      test: true
+      test: $test
     ) {
       appSubscription {
         id
@@ -256,7 +249,6 @@ const ACTIVE_SUBSCRIPTIONS_QUERY = `
           }
         }
         createdAt
-        trialDays
         currentPeriodEnd
       }
       oneTimePurchases(first: 10, sortKey: CREATED_AT, reverse: true) {
@@ -281,7 +273,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
   try {
-    // Get current shop from database
+    // Get current shop from database - SANS billingId qui n'existe pas
     const shop = await prisma.shop.findFirst({
       where: { shopifyDomain: session.shop },
       select: {
@@ -291,9 +283,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         plan: true,
         credits: true,
         maxCredits: true,
-        billingId: true,
       }
     });
+
+    // Get shop currency from Shopify - DYNAMIQUE
+    const shopInfoResponse = await admin.graphql(`
+      query {
+        shop {
+          currencyCode
+        }
+      }
+    `);
+    const shopInfoData = await shopInfoResponse.json();
+    const currency = shopInfoData.data?.shop?.currencyCode || "USD";
 
     // Get active subscriptions from Shopify
     const response = await admin.graphql(ACTIVE_SUBSCRIPTIONS_QUERY);
@@ -307,7 +309,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const charge_id = url.searchParams.get("charge_id");
     
     if (charge_id) {
-      // User confirmed the charge, update database
+      // User confirmed the charge, update database - SANS billingId
       const planId = url.searchParams.get("plan_id");
       if (planId && shop) {
         const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
@@ -317,7 +319,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             plan: planId,
             credits: plan.credits,
             maxCredits: plan.credits,
-            billingId: charge_id,
           }
         });
         return redirect("/app/pricing?success=true");
@@ -333,6 +334,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       },
       activeSubscriptions,
       oneTimePurchases,
+      currency, // DEVISE DYNAMIQUE
       success: url.searchParams.get("success") === "true",
       cancelled: url.searchParams.get("cancelled") === "true",
     });
@@ -347,6 +349,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       },
       activeSubscriptions: [],
       oneTimePurchases: [],
+      currency: "USD",
       error: "Failed to load pricing information"
     });
   }
@@ -366,6 +369,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (!shop) {
       return json({ error: "Shop not found" }, { status: 404 });
     }
+
+    // Get shop currency from Shopify - DYNAMIQUE
+    const shopInfoResponse = await admin.graphql(`
+      query {
+        shop {
+          currencyCode
+        }
+      }
+    `);
+    const shopInfoData = await shopInfoResponse.json();
+    const currency = shopInfoData.data?.shop?.currencyCode || "USD";
 
     // Handle cancellation
     if (action === "cancel") {
@@ -398,14 +412,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }, { status: 400 });
       }
 
-      // Update database to reflect cancellation
+      // Update database to reflect cancellation - SANS billingId
       await prisma.shop.update({
         where: { id: shop.id },
         data: {
           plan: "TRIAL",
           credits: 25,
           maxCredits: 25,
-          billingId: null,
         }
       });
 
@@ -434,13 +447,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       let confirmationUrl: string | null = null;
 
       if (plan.interval === "ANNUAL") {
-        // Create one-time purchase for annual plans
+        // Create one-time purchase for annual plans - DEVISE DYNAMIQUE
         const response = await admin.graphql(CREATE_PURCHASE_MUTATION, {
           variables: {
             name: `RankInAI ${plan.name} Annual Plan`,
             price: {
               amount: plan.price,
-              currencyCode: "EUR"
+              currencyCode: currency // DYNAMIQUE (USD, EUR, GBP, etc.)
             },
             returnUrl,
             test: process.env.NODE_ENV !== "production"
@@ -458,7 +471,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         confirmationUrl = result.data?.appPurchaseOneTimeCreate?.confirmationUrl;
 
       } else {
-        // Create recurring subscription for monthly plans
+        // Create recurring subscription for monthly plans - DEVISE DYNAMIQUE
         const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
           variables: {
             name: `RankInAI ${plan.name} Plan`,
@@ -467,14 +480,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 appRecurringPricingDetails: {
                   price: {
                     amount: plan.price,
-                    currencyCode: "EUR"
+                    currencyCode: currency // DYNAMIQUE (USD, EUR, GBP, etc.)
                   },
                   interval: plan.interval
                 }
               }
             }],
             returnUrl,
-            trialDays: plan.trialDays || 0
+            test: process.env.NODE_ENV !== "production"
           }
         });
 
@@ -508,7 +521,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Pricing() {
-  const { shop, activeSubscriptions, oneTimePurchases, success, cancelled } = useLoaderData<typeof loader>();
+  const { shop, activeSubscriptions, oneTimePurchases, currency, success, cancelled } = useLoaderData<typeof loader>();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const fetcher = useFetcher();
@@ -561,6 +574,28 @@ export default function Pricing() {
   const displayPlans = billingPeriod === "monthly" 
     ? [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_MONTHLY, BILLING_PLANS.GROWTH_MONTHLY, BILLING_PLANS.PRO_MONTHLY]
     : [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_ANNUAL, BILLING_PLANS.GROWTH_ANNUAL, BILLING_PLANS.PRO_ANNUAL];
+
+  // Currency symbol helper - SUPPORT DE 13 DEVISES
+  const getCurrencySymbol = (code: string) => {
+    const symbols: { [key: string]: string } = {
+      USD: "$",
+      EUR: "€",
+      GBP: "£",
+      CAD: "CA$",
+      AUD: "A$",
+      JPY: "¥",
+      CHF: "CHF ",
+      SEK: "kr",
+      NOK: "kr",
+      DKK: "kr",
+      NZD: "NZ$",
+      SGD: "S$",
+      HKD: "HK$",
+    };
+    return symbols[currency] || currency + " ";
+  };
+
+  const currencySymbol = getCurrencySymbol(currency);
 
   return (
     <div style={{ 
@@ -696,7 +731,7 @@ export default function Pricing() {
             borderRadius: "12px",
             marginBottom: "32px"
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
               <div>
                 <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>
                   Active Subscription: {activeSubscriptions[0].name}
@@ -794,7 +829,7 @@ export default function Pricing() {
                     ) : (
                       <>
                         <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>
-                          €{monthlyPrice}
+                          {currencySymbol}{monthlyPrice}
                         </span>
                         <span style={{ fontSize: "16px", color: "#6d7175" }}>
                           /month
@@ -806,25 +841,14 @@ export default function Pricing() {
                   {billingPeriod === "annual" && plan.interval === "ANNUAL" && (
                     <>
                       <div style={{ fontSize: "14px", color: "#6d7175", marginTop: "4px" }}>
-                        €{plan.price} billed annually
+                        {currencySymbol}{plan.price} billed annually
                       </div>
                       {plan.savings && (
                         <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>
-                          Save €{plan.savings} per year
+                          Save {currencySymbol}{plan.savings} per year
                         </div>
                       )}
                     </>
-                  )}
-                  
-                  {plan.trialDays && plan.price > 0 && (
-                    <div style={{
-                      fontSize: "14px",
-                      color: "#ff9800",
-                      marginTop: "8px",
-                      fontWeight: "600"
-                    }}>
-                      🎁 {plan.trialDays}-day free trial
-                    </div>
                   )}
                   
                   <div style={{ 
