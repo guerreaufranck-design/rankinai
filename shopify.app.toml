@@ -15,16 +15,16 @@ api_version = "2025-10"
 # Webhooks normaux
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]
-uri = "/webhooks"
+uri = "/api/webhooks"
 
-# Webhooks GDPR obligatoires - TOUS dans un seul bloc
+# Webhooks GDPR obligatoires
 [[webhooks.subscriptions]]
 compliance_topics = [
   "customers/data_request",
   "customers/redact",
   "shop/redact"
 ]
-uri = "/webhooks"
+uri = "/api/webhooks"
 
 [access_scopes]
 scopes = "read_product_listings,write_product_listings,read_products,write_products"
