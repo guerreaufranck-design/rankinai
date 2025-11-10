@@ -52,6 +52,8 @@ const shopify = shopifyApp({
 
 export default shopify;
 export const authenticate = shopify.authenticate;
+export const login = shopify.login;
+export const sessionStorage = shopify.sessionStorage;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const MONTHLY_PLAN = "Basic Monthly";
 export const ANNUAL_PLAN = "Basic Annual";
