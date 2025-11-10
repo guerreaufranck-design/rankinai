@@ -2,34 +2,44 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import crypto from "crypto";
 
-// ✅ Vérification manuelle AVANT authenticate.webhook()
 const verifyWebhook = async (request: Request): Promise<boolean> => {
   try {
     const rawBody = await request.text();
     const hmac = request.headers.get("x-shopify-hmac-sha256");
     
-    if (!hmac) {
-      console.error("[HMAC] Header missing");
-      return false;
-    }
+    console.log("🔍 === HMAC DEBUG START ===");
+    console.log("🔍 HMAC Header:", hmac);
+    console.log("🔍 Body length:", rawBody.length);
+    console.log("🔍 Body (first 100 chars):", rawBody.substring(0, 100));
+    console.log("🔍 Body (last 50 chars):", rawBody.substring(rawBody.length - 50));
     
     const secret = process.env.SHOPIFY_API_SECRET;
-    if (!secret) {
-      console.error("[HMAC] Secret missing");
+    console.log("🔍 Secret exists:", !!secret);
+    console.log("🔍 Secret length:", secret?.length);
+    console.log("🔍 Secret prefix:", secret?.substring(0, 10));
+    
+    if (!hmac || !secret) {
+      console.error("❌ Missing HMAC or secret");
       return false;
     }
     
-    const hash = crypto
-      .createHmac("sha256", secret)
-      .update(rawBody, "utf8")
-      .digest("base64");
+    // Test avec plusieurs encodings
+    const hash1 = crypto.createHmac("sha256", secret).update(rawBody, "utf8").digest("base64");
+    const hash2 = crypto.createHmac("sha256", secret).update(Buffer.from(rawBody, "utf8")).digest("base64");
+    const hash3 = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
     
-    const isValid = hash === hmac;
-    console.log("[HMAC] Valid:", isValid);
+    console.log("🔍 HMAC calc (utf8):", hash1);
+    console.log("🔍 HMAC calc (buffer):", hash2);
+    console.log("🔍 HMAC calc (default):", hash3);
+    console.log("🔍 HMAC received:", hmac);
+    console.log("🔍 Match utf8?", hash1 === hmac);
+    console.log("🔍 Match buffer?", hash2 === hmac);
+    console.log("🔍 Match default?", hash3 === hmac);
+    console.log("🔍 === HMAC DEBUG END ===");
     
-    return isValid;
+    return hash1 === hmac || hash2 === hmac || hash3 === hmac;
   } catch (error) {
-    console.error("[HMAC] Error:", error);
+    console.error("❌ [HMAC] Error:", error);
     return false;
   }
 };
@@ -40,35 +50,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   try {
-    // ✅ Clone pour vérification manuelle
     const clonedRequest = request.clone();
     const trustworthy = await verifyWebhook(clonedRequest);
     
     if (!trustworthy) {
-      console.error("[WEBHOOK] Invalid HMAC - Rejected");
+      console.error("❌ [WEBHOOK] Invalid HMAC - Rejected");
       return new Response("Invalid HMAC", { status: 401 });
     }
 
-    // ✅ Puis authenticate avec request original
     const { topic, shop, payload } = await authenticate.webhook(request);
     
     console.log(`✅ [WEBHOOK] ${topic} from ${shop}`);
 
     switch (topic) {
       case "customers/data_request":
-        console.log("[GDPR] Customer data request:", payload.customer?.email);
+        console.log("[GDPR] Customer data request");
         break;
       case "customers/redact":
-        console.log("[GDPR] Customer redact:", payload.customer?.id);
+        console.log("[GDPR] Customer redact");
         break;
       case "shop/redact":
-        console.log("[GDPR] Shop redact:", payload.shop_domain);
+        console.log("[GDPR] Shop redact");
         break;
-      case "app/uninstalled":
-        console.log("[APP] App uninstalled");
-        break;
-      default:
-        console.log(`[WEBHOOK] Unknown topic: ${topic}`);
     }
 
     return new Response(JSON.stringify({ received: true }), {
@@ -77,8 +80,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
     
   } catch (error) {
-    console.error("[WEBHOOK] Error:", error);
-    // ✅ Retourner 200 même en erreur pour éviter retries
+    console.error("❌ [WEBHOOK] Error:", error);
     return new Response(JSON.stringify({ error: "Internal error" }), {
       status: 200,
       headers: { "Content-Type": "application/json" }
