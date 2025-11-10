@@ -7,3 +7,14 @@ export function json(data: any, init?: ResponseInit) {
     },
   });
 }
+
+export function redirect(url: string, init?: ResponseInit) {
+  return new Response(null, {
+    status: 302,
+    ...init,
+    headers: {
+      Location: url,
+      ...init?.headers,
+    },
+  });
+}
