@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "f1a5827b7d612c239b5d6e2c8c110d44"
+client_id = "6eafabf61fe803ad8fd73ffdca8c922d"
 name = "RankInAi"
 application_url = "https://rankinai.vercel.app"
 embedded = true
