@@ -9,23 +9,6 @@ embedded = true
 automatically_update_urls_on_dev = true
 include_config_on_deploy = true
 
-[webhooks]
-api_version = "2025-10"
-
-# Webhooks normaux
-[[webhooks.subscriptions]]
-topics = ["app/uninstalled"]
-uri = "/api/webhooks"
-
-# Webhooks GDPR obligatoires
-[[webhooks.subscriptions]]
-compliance_topics = [
-  "customers/data_request",
-  "customers/redact",
-  "shop/redact"
-]
-uri = "/api/webhooks"
-
 [access_scopes]
 scopes = "read_product_listings,write_product_listings,read_products,write_products"
 optional_scopes = ["read_metaobjects", "write_metaobjects"]
@@ -37,3 +20,18 @@ redirect_urls = [
   "https://localhost:3000/auth/callback",
   "http://localhost:3000/auth/callback"
 ]
+
+[webhooks]
+api_version = "2025-10"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/webhooks/app/uninstalled"
+
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
+uri = "/webhooks"
