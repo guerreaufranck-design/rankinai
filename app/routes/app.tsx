@@ -5,6 +5,12 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  // ✅ SKIP authentication pour les webhooks
+  const url = new URL(request.url);
+  if (url.pathname === "/webhooks") {
+    return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  }
+
   try {
     await authenticate.admin(request);
     return { apiKey: process.env.SHOPIFY_API_KEY || "" };
