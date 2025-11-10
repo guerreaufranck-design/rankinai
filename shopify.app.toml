@@ -10,7 +10,7 @@ automatically_update_urls_on_dev = true
 include_config_on_deploy = true
 
 [webhooks]
-api_version = "2025-01"
+api_version = "2025-10"
 
 # Webhooks normaux
 [[webhooks.subscriptions]]
