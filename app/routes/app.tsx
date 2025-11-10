@@ -14,6 +14,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 };
 
+export const shouldRevalidate = () => false;
+
 export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
   
@@ -24,7 +26,6 @@ export default function App() {
   );
 }
 
-// ErrorBoundary personnalisé pour éviter l'icône géante
 export function ErrorBoundary() {
   const error = useRouteError();
   

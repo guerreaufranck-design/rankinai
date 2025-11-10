@@ -10,32 +10,25 @@ automatically_update_urls_on_dev = true
 include_config_on_deploy = true
 
 [webhooks]
-api_version = "2025-10"
+api_version = "2025-01"
 
-  [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled" ]
-  uri = "/webhooks/app/uninstalled"
+# Webhooks normaux
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/webhooks"
 
-  [[webhooks.subscriptions]]
-  topics = [ "app/scopes_update" ]
-  uri = "/webhooks/app/scopes_update"
-
-  [[webhooks.subscriptions]]
-  compliance_topics = [ "customers/data_request" ]
-  uri = "/webhooks/customers/data_request"
-
-  [[webhooks.subscriptions]]
-  compliance_topics = [ "customers/redact" ]
-  uri = "/webhooks/customers/redact"
-
-  [[webhooks.subscriptions]]
-  compliance_topics = [ "shop/redact" ]
-  uri = "/webhooks/shop/redact"
+# Webhooks GDPR obligatoires - TOUS dans un seul bloc
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
+uri = "/webhooks"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_locales,write_locales,read_online_store_pages,write_online_store_pages,read_product_listings,write_product_listings,read_products,write_products,read_script_tags,read_content,write_content,read_themes"
-optional_scopes = [ "read_metaobjects", "write_metaobjects" ]
+scopes = "read_product_listings,write_product_listings,read_products,write_products"
+optional_scopes = ["read_metaobjects", "write_metaobjects"]
 use_legacy_install_flow = false
 
 [auth]
