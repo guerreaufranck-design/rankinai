@@ -6,7 +6,12 @@ export const loader = () => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic } = await authenticate.webhook(request);
-  console.log("[WEBHOOK] " + topic + " for " + shop);
-  return new Response();
+  try {
+    const { shop, topic } = await authenticate.webhook(request);
+    console.log("[WEBHOOK] " + topic + " for " + shop);
+    return new Response();
+  } catch (error) {
+    console.error("[WEBHOOK] Error:", error);
+    return new Response("Unauthorized", { status: 401 });
+  }
 };
