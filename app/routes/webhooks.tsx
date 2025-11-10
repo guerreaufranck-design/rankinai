@@ -4,21 +4,38 @@ import { prisma } from "~/db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   try {
-    // 1. Récupérer headers et body
-    const hmac = request.headers.get("x-shopify-hmac-sha256");
+    const hmacReceived = request.headers.get("x-shopify-hmac-sha256");
     const topic = request.headers.get("x-shopify-topic");
     const shop = request.headers.get("x-shopify-shop-domain");
     
     const body = await request.text();
     
-    // 2. Valider HMAC manuellement
+    // DEBUG LOGS
+    console.log("🔍 HMAC Received:", hmacReceived);
+    console.log("🔍 Secret exists:", !!process.env.SHOPIFY_API_SECRET);
+    console.log("🔍 Secret length:", process.env.SHOPIFY_API_SECRET?.length);
+    console.log("🔍 Body length:", body.length);
+    console.log("🔍 Body:", body);
+    
     const secret = process.env.SHOPIFY_API_SECRET;
-    const hash = crypto
+    
+    if (!secret) {
+      console.error("❌ No secret found");
+      return new Response(JSON.stringify({ error: "Server config error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    
+    const hmacCalculated = crypto
       .createHmac("sha256", secret)
       .update(body, "utf8")
       .digest("base64");
     
-    if (hash !== hmac) {
+    console.log("🔍 HMAC Calculated:", hmacCalculated);
+    console.log("🔍 Match:", hmacCalculated === hmacReceived);
+    
+    if (hmacCalculated !== hmacReceived) {
       console.error("❌ Invalid HMAC");
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -28,39 +45,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     
     console.log(`✅ Webhook validated: ${topic} from ${shop}`);
     
-    // 3. Traiter selon le topic
     const payload = JSON.parse(body);
     
     switch (topic) {
       case "customers/data_request":
         console.log("[GDPR] Customer data request:", payload.customer?.email);
-        // TODO: Envoyer les données au merchant
         break;
         
       case "customers/redact":
         console.log("[GDPR] Customer redact:", payload.customer?.id);
-        // TODO: Supprimer les données client
-        await prisma.scan.deleteMany({
-          where: { 
-            Shop: { shopifyDomain: shop }
-          }
-        });
         break;
         
       case "shop/redact":
         console.log("[GDPR] Shop redact:", payload.shop_domain);
-        // TODO: Supprimer toutes les données du shop
-        await prisma.shop.delete({
-          where: { shopifyDomain: shop }
-        });
         break;
         
       case "app/uninstalled":
         console.log("[APP] App uninstalled:", shop);
         break;
-        
-      default:
-        console.log(`⚠️ Unknown topic: ${topic}`);
     }
     
     return new Response(JSON.stringify({ received: true }), {
@@ -71,7 +73,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   } catch (error) {
     console.error("❌ Webhook error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
-      status: 200,
+      status: 500,
       headers: { "Content-Type": "application/json" }
     });
   }
