@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "~/utils/response";
 import { authenticate } from "~/shopify.server";
 import { prisma } from "~/db.server";
 

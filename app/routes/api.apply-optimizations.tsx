@@ -1,4 +1,4 @@
-import { json } from "@remix-run/node";
+import { json } from "~/utils/response";
 import type { ActionFunction } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "~/db.server";

@@ -1,5 +1,5 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import { json } from "@remix-run/node";
+import { json } from "~/utils/response";
 import { useLoaderData, useFetcher } from "react-router";
 import { authenticate } from "~/shopify.server";
 import { prisma } from "~/db.server";

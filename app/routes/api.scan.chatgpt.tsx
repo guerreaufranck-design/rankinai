@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs } from "react-router";
-import { json } from "@remix-run/node";
+import { json } from "~/utils/response";
 import { authenticate } from "~/shopify.server";
 import { prisma } from "~/db.server";
 import OpenAI from "openai";
