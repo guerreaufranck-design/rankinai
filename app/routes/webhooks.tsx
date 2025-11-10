@@ -7,39 +7,19 @@ const verifyWebhook = async (request: Request): Promise<boolean> => {
     const rawBody = await request.text();
     const hmac = request.headers.get("x-shopify-hmac-sha256");
     
-    console.log("🔍 === HMAC DEBUG START ===");
-    console.log("🔍 HMAC Header:", hmac);
-    console.log("🔍 Body length:", rawBody.length);
-    console.log("🔍 Body (first 100 chars):", rawBody.substring(0, 100));
-    console.log("🔍 Body (last 50 chars):", rawBody.substring(rawBody.length - 50));
+    if (!hmac) return false;
     
     const secret = process.env.SHOPIFY_API_SECRET;
-    console.log("🔍 Secret exists:", !!secret);
-    console.log("🔍 Secret length:", secret?.length);
-    console.log("🔍 Secret prefix:", secret?.substring(0, 10));
+    if (!secret) return false;
     
-    if (!hmac || !secret) {
-      console.error("❌ Missing HMAC or secret");
-      return false;
-    }
+    const hash = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody, "utf8")
+      .digest("base64");
     
-    // Test avec plusieurs encodings
-    const hash1 = crypto.createHmac("sha256", secret).update(rawBody, "utf8").digest("base64");
-    const hash2 = crypto.createHmac("sha256", secret).update(Buffer.from(rawBody, "utf8")).digest("base64");
-    const hash3 = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
-    
-    console.log("🔍 HMAC calc (utf8):", hash1);
-    console.log("🔍 HMAC calc (buffer):", hash2);
-    console.log("🔍 HMAC calc (default):", hash3);
-    console.log("🔍 HMAC received:", hmac);
-    console.log("🔍 Match utf8?", hash1 === hmac);
-    console.log("🔍 Match buffer?", hash2 === hmac);
-    console.log("🔍 Match default?", hash3 === hmac);
-    console.log("🔍 === HMAC DEBUG END ===");
-    
-    return hash1 === hmac || hash2 === hmac || hash3 === hmac;
+    return hash === hmac;
   } catch (error) {
-    console.error("❌ [HMAC] Error:", error);
+    console.error("[Webhook] HMAC verification error:", error);
     return false;
   }
 };
@@ -54,23 +34,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const trustworthy = await verifyWebhook(clonedRequest);
     
     if (!trustworthy) {
-      console.error("❌ [WEBHOOK] Invalid HMAC - Rejected");
-      return new Response("Invalid HMAC", { status: 401 });
+      return new Response("Unauthorized", { status: 401 });
     }
 
     const { topic, shop, payload } = await authenticate.webhook(request);
-    
-    console.log(`✅ [WEBHOOK] ${topic} from ${shop}`);
 
     switch (topic) {
       case "customers/data_request":
-        console.log("[GDPR] Customer data request");
+        // TODO: Send customer data to merchant
+        console.log("[GDPR] Customer data request for shop:", shop);
         break;
+        
       case "customers/redact":
-        console.log("[GDPR] Customer redact");
+        // TODO: Delete customer data from database
+        console.log("[GDPR] Customer redact for shop:", shop);
         break;
+        
       case "shop/redact":
-        console.log("[GDPR] Shop redact");
+        // TODO: Delete all shop data from database
+        console.log("[GDPR] Shop redact for shop:", shop);
+        break;
+        
+      case "app/uninstalled":
+        console.log("[APP] App uninstalled from shop:", shop);
         break;
     }
 
@@ -80,7 +66,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
     
   } catch (error) {
-    console.error("❌ [WEBHOOK] Error:", error);
+    console.error("[Webhook] Processing error:", error);
     return new Response(JSON.stringify({ error: "Internal error" }), {
       status: 200,
       headers: { "Content-Type": "application/json" }
