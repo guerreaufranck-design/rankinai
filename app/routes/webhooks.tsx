@@ -1,7 +1,7 @@
-import { json, type ActionFunction } from "react-router";
+import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 
-export const action: ActionFunction = async ({ request }) => {
+export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     const { topic, shop, session, payload } = await authenticate.webhook(request);
 
@@ -28,15 +28,24 @@ export const action: ActionFunction = async ({ request }) => {
         console.log(`⚠️ Unknown topic: ${topic}`);
     }
 
-    return json({ received: true }, { status: 200 });
+    return new Response(JSON.stringify({ received: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
     
   } catch (error) {
     console.error("❌ Webhook error:", error);
 
     if (error.message?.includes("HMAC") || error.message?.includes("Unauthorized")) {
-      return json({ error: "Unauthorized" }, { status: 401 });
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
-    return json({ error: error.message }, { status: 200 });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
   }
 };
