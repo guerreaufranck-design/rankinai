@@ -1,16 +1,23 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useOutletContext } from "react-router";
+
+interface OutletContext {
+  credits: number;
+  maxCredits: number;
+}
 
 export default function AppHeader() {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // 🆕 Lire les crédits depuis le context
+  const { credits = 0, maxCredits = 25 } = useOutletContext<OutletContext>() || {};
 
   // Détection de la largeur d'écran
   useEffect(() => {
     const checkScreenSize = () => {
       setIsMobile(window.innerWidth < 768);
-      // Fermer le menu si on passe en desktop
       if (window.innerWidth >= 768) {
         setIsMenuOpen(false);
       }
@@ -44,7 +51,6 @@ export default function AppHeader() {
 
   return (
     <>
-      {/* Header principal */}
       <header style={{
         background: "white",
         borderBottom: "1px solid #e3e3e3",
@@ -61,9 +67,7 @@ export default function AppHeader() {
           justifyContent: "space-between",
           alignItems: "center",
         }}>
-          {/* Logo et titre */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* Bouton hamburger pour mobile */}
             {isMobile && (
               <button
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -155,7 +159,6 @@ export default function AppHeader() {
             </Link>
           </div>
 
-          {/* Navigation desktop */}
           {!isMobile && (
             <nav style={{ display: "flex", gap: "8px" }}>
               {navLinks.map(link => (
@@ -189,7 +192,6 @@ export default function AppHeader() {
             </nav>
           )}
 
-          {/* Actions (crédits, etc.) */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div style={{
               padding: isMobile ? "6px 10px" : "8px 16px",
@@ -202,7 +204,7 @@ export default function AppHeader() {
               alignItems: "center",
               gap: "6px",
             }}>
-              💳 <span style={{ color: "#2196f3" }}>25</span> credits
+              💳 <span style={{ color: "#2196f3" }}>{credits}</span> credits
             </div>
 
             {!isMobile && (
@@ -236,7 +238,6 @@ export default function AppHeader() {
           </div>
         </div>
 
-        {/* Navigation mobile (slide-down menu) */}
         {isMobile && (
           <div style={{
             maxHeight: isMenuOpen ? "400px" : "0",
@@ -272,7 +273,6 @@ export default function AppHeader() {
                 </Link>
               ))}
               
-              {/* Bouton Upgrade en mobile */}
               <div style={{ padding: "12px 16px 8px" }}>
                 <Link
                   to="/app/pricing"
@@ -300,7 +300,6 @@ export default function AppHeader() {
         )}
       </header>
 
-      {/* Overlay pour fermer le menu en cliquant à côté */}
       {isMobile && isMenuOpen && (
         <div
           style={{

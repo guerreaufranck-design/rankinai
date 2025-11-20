@@ -3,18 +3,40 @@ import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
+import { prisma } from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   
   // ✅ SKIP authentication pour TOUS les webhooks
   if (url.pathname.startsWith("/webhooks")) {
-    return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+    return { apiKey: process.env.SHOPIFY_API_KEY || "", credits: 0, maxCredits: 25 };
   }
 
   try {
-    await authenticate.admin(request);
-    return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+    const { session } = await authenticate.admin(request);
+    
+    // Charger le shop pour obtenir les crédits
+    let shop = await prisma.shop.findUnique({
+      where: { shopifyDomain: session.shop },
+    });
+
+    // Créer le shop s'il n'existe pas
+    if (!shop) {
+      shop = await prisma.shop.create({
+        data: {
+          shopifyDomain: session.shop,
+          shopName: session.shop.replace('.myshopify.com', ''),
+          accessToken: session.accessToken,
+        },
+      });
+    }
+
+    return { 
+      apiKey: process.env.SHOPIFY_API_KEY || "",
+      credits: shop.credits ?? 0,
+      maxCredits: shop.maxCredits ?? 25
+    };
   } catch (error) {
     console.error("Loader error in app.tsx:", error);
     throw error;
@@ -24,11 +46,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const shouldRevalidate = () => false;
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, credits, maxCredits } = useLoaderData<typeof loader>();
   
   return (
     <AppProvider embedded apiKey={apiKey}>
-      <Outlet />
+      <Outlet context={{ credits, maxCredits }} />
     </AppProvider>
   );
 }
