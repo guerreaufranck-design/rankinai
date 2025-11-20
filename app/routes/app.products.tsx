@@ -1376,18 +1376,6 @@ export default function Products() {
                   {fetcher.state === "submitting" && fetcher.formData?.get("action") === "syncProducts" ? "🔄 Syncing..." : "🔄 Sync Products"}
                 </button>
               </fetcher.Form>
-              <div
-                style={{
-                  background: shop && shop.credits > 10 ? "#e8f5e9" : "#ffebee",
-                  color: shop && shop.credits > 10 ? "#2e7d32" : "#c62828",
-                  padding: "8px 16px",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  fontWeight: "600",
-                }}
-              >
-                💳 {shop?.credits || 0}/{shop?.maxCredits || 25}
-              </div>
             </div>
           </div>
 

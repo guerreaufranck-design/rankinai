@@ -1437,18 +1437,6 @@ export default function Optimize() {
                 AI-powered suggestions to boost your store & product visibility
               </p>
             </div>
-            <div
-              style={{
-                background: shop && shop.credits > 10 ? "#e8f5e9" : "#ffebee",
-                color: shop && shop.credits > 10 ? "#2e7d32" : "#c62828",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                fontSize: "14px",
-                fontWeight: "600",
-              }}
-            >
-              💳 {shop?.credits || 0}/{shop?.maxCredits || 25} credits
-            </div>
           </div>
         </div>
 
