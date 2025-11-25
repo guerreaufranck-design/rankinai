@@ -13,34 +13,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return { apiKey: process.env.SHOPIFY_API_KEY || "", credits: 0, maxCredits: 25 };
   }
 
-  try {
-    const { session } = await authenticate.admin(request);
-    
-    // Charger le shop pour obtenir les crédits
-    let shop = await prisma.shop.findUnique({
-      where: { shopifyDomain: session.shop },
+  const { session } = await authenticate.admin(request);
+  
+  // Charger le shop pour obtenir les crédits
+  let shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
+
+  // Créer le shop s'il n'existe pas
+  if (!shop) {
+    shop = await prisma.shop.create({
+      data: {
+        shopifyDomain: session.shop,
+        shopName: session.shop.replace('.myshopify.com', ''),
+        accessToken: session.accessToken,
+      },
     });
-
-    // Créer le shop s'il n'existe pas
-    if (!shop) {
-      shop = await prisma.shop.create({
-        data: {
-          shopifyDomain: session.shop,
-          shopName: session.shop.replace('.myshopify.com', ''),
-          accessToken: session.accessToken,
-        },
-      });
-    }
-
-    return { 
-      apiKey: process.env.SHOPIFY_API_KEY || "",
-      credits: shop.credits ?? 0,
-      maxCredits: shop.maxCredits ?? 25
-    };
-  } catch (error) {
-    console.error("Loader error in app.tsx:", error);
-    throw error;
   }
+
+  return { 
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    credits: shop.credits ?? 0,
+    maxCredits: shop.maxCredits ?? 25
+  };
 };
 
 export const shouldRevalidate = () => false;
