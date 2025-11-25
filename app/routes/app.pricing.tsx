@@ -273,7 +273,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
   try {
-    // Get current shop from database - SANS billingId qui n'existe pas
+    // Get current shop from database
     const shop = await prisma.shop.findFirst({
       where: { shopifyDomain: session.shop },
       select: {
@@ -286,7 +286,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       }
     });
 
-    // Get shop currency from Shopify - DYNAMIQUE
+    // Get shop currency from Shopify
     const shopInfoResponse = await admin.graphql(`
       query {
         shop {
@@ -309,32 +309,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const charge_id = url.searchParams.get("charge_id");
     
     if (charge_id) {
-      // User confirmed the charge, update database - SANS billingId
+      // User confirmed the charge, update database
       const planId = url.searchParams.get("plan_id");
       if (planId && shop) {
         const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
-        await prisma.shop.update({
-          where: { id: shop.id },
-          data: {
-            plan: planId,
-            credits: plan.credits,
-            maxCredits: plan.credits,
-          }
-        });
-        return redirect("/app/pricing?success=true");
+        if (plan) {
+          await prisma.shop.update({
+            where: { id: shop.id },
+            data: {
+              plan: planId,
+              credits: plan.credits,
+              maxCredits: plan.credits,
+            }
+          });
+          return redirect("/app/pricing?success=true");
+        }
       }
     }
 
     return json({
       shop: shop || {
         plan: "TRIAL",
-        credits: 25,
-        maxCredits: 25,
+        credits: BILLING_PLANS.TRIAL.credits,
+        maxCredits: BILLING_PLANS.TRIAL.credits,
         shopName: "Store",
       },
       activeSubscriptions,
       oneTimePurchases,
-      currency, // DEVISE DYNAMIQUE
+      currency,
       success: url.searchParams.get("success") === "true",
       cancelled: url.searchParams.get("cancelled") === "true",
     });
@@ -343,8 +345,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({
       shop: {
         plan: "TRIAL",
-        credits: 25,
-        maxCredits: 25,
+        credits: BILLING_PLANS.TRIAL.credits,
+        maxCredits: BILLING_PLANS.TRIAL.credits,
         shopName: "Store",
       },
       activeSubscriptions: [],
@@ -370,7 +372,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ error: "Shop not found" }, { status: 404 });
     }
 
-    // Get shop currency from Shopify - DYNAMIQUE
+    // Get shop currency from Shopify
     const shopInfoResponse = await admin.graphql(`
       query {
         shop {
@@ -412,13 +414,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }, { status: 400 });
       }
 
-      // Update database to reflect cancellation - SANS billingId
+      // Update database to reflect cancellation - DYNAMIQUE
       await prisma.shop.update({
         where: { id: shop.id },
         data: {
           plan: "TRIAL",
-          credits: 25,
-          maxCredits: 25,
+          credits: BILLING_PLANS.TRIAL.credits,
+          maxCredits: BILLING_PLANS.TRIAL.credits,
         }
       });
 
@@ -447,13 +449,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       let confirmationUrl: string | null = null;
 
       if (plan.interval === "ANNUAL") {
-        // Create one-time purchase for annual plans - DEVISE DYNAMIQUE
+        // Create one-time purchase for annual plans
         const response = await admin.graphql(CREATE_PURCHASE_MUTATION, {
           variables: {
             name: `RankInAI ${plan.name} Annual Plan`,
             price: {
               amount: plan.price,
-              currencyCode: currency // DYNAMIQUE (USD, EUR, GBP, etc.)
+              currencyCode: currency
             },
             returnUrl,
             test: process.env.NODE_ENV !== "production"
@@ -471,7 +473,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         confirmationUrl = result.data?.appPurchaseOneTimeCreate?.confirmationUrl;
 
       } else {
-        // Create recurring subscription for monthly plans - DEVISE DYNAMIQUE
+        // Create recurring subscription for monthly plans
         const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
           variables: {
             name: `RankInAI ${plan.name} Plan`,
@@ -480,7 +482,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 appRecurringPricingDetails: {
                   price: {
                     amount: plan.price,
-                    currencyCode: currency // DYNAMIQUE (USD, EUR, GBP, etc.)
+                    currencyCode: currency
                   },
                   interval: plan.interval
                 }
@@ -575,7 +577,7 @@ export default function Pricing() {
     ? [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_MONTHLY, BILLING_PLANS.GROWTH_MONTHLY, BILLING_PLANS.PRO_MONTHLY]
     : [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_ANNUAL, BILLING_PLANS.GROWTH_ANNUAL, BILLING_PLANS.PRO_ANNUAL];
 
-  // Currency symbol helper - SUPPORT DE 13 DEVISES
+  // Currency symbol helper
   const getCurrencySymbol = (code: string) => {
     const symbols: { [key: string]: string } = {
       USD: "$",
@@ -957,7 +959,7 @@ export default function Pricing() {
             For large stores with over 10,000 products or specific enterprise needs, 
             we offer custom plans with dedicated support and infrastructure.
           </p>
-          <a
+          
             href="mailto:contact@rank-in-ai.com?subject=Enterprise%20Plan%20Inquiry"
             style={{
               display: "inline-block",
