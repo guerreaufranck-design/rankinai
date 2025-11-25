@@ -1,7 +1,13 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { ChatBot } from "~/components/ChatBot"; // AJOUTER CETTE LIGNE
+import { useEffect } from "react";
+import { ChatBot } from "~/components/ChatBot";
+import { initSentry } from "~/utils/sentry.client";
 
 export default function App() {
+  useEffect(() => {
+    initSentry();
+  }, []);
+
   return (
     <html lang="en">
       <head>
@@ -17,7 +23,7 @@ export default function App() {
       </head>
       <body>
         <Outlet />
-        <ChatBot />  {/* AJOUTER CETTE LIGNE */}
+        <ChatBot />
         <ScrollRestoration />
         <Scripts />
       </body>

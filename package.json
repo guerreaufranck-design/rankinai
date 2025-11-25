@@ -33,6 +33,8 @@
     "@react-router/node": "^7.9.3",
     "@react-router/serve": "^7.9.3",
     "@remix-run/node": "^2.17.2",
+    "@sentry/react": "^10.27.0",
+    "@sentry/react-router": "^10.27.0",
     "@shopify/app-bridge-react": "^4.2.4",
     "@shopify/polaris": "^13.9.0",
     "@shopify/polaris-icons": "^9.3.1",
