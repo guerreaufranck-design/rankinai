@@ -9,6 +9,7 @@ import AppHeader from "~/components/AppHeader";
 const BILLING_PLANS = {
   TRIAL: {
     id: "TRIAL",
+    prismaEnum: "TRIAL",
     name: "Free Trial",
     price: 0,
     interval: "ONE_TIME",
@@ -31,6 +32,7 @@ const BILLING_PLANS = {
   },
   STARTER_MONTHLY: {
     id: "STARTER_MONTHLY",
+    prismaEnum: "STARTER",
     name: "Starter",
     price: 29,
     interval: "EVERY_30_DAYS",
@@ -54,6 +56,7 @@ const BILLING_PLANS = {
   },
   STARTER_ANNUAL: {
     id: "STARTER_ANNUAL",
+    prismaEnum: "STARTER",
     name: "Starter",
     price: 290,
     interval: "ANNUAL",
@@ -79,6 +82,7 @@ const BILLING_PLANS = {
   },
   GROWTH_MONTHLY: {
     id: "GROWTH_MONTHLY",
+    prismaEnum: "GROWTH",
     name: "Growth",
     price: 79,
     interval: "EVERY_30_DAYS",
@@ -102,6 +106,7 @@ const BILLING_PLANS = {
   },
   GROWTH_ANNUAL: {
     id: "GROWTH_ANNUAL",
+    prismaEnum: "GROWTH",
     name: "Growth",
     price: 790,
     interval: "ANNUAL",
@@ -127,6 +132,7 @@ const BILLING_PLANS = {
   },
   PRO_MONTHLY: {
     id: "PRO_MONTHLY",
+    prismaEnum: "PRO",
     name: "Professional",
     price: 199,
     interval: "EVERY_30_DAYS",
@@ -149,6 +155,7 @@ const BILLING_PLANS = {
   },
   PRO_ANNUAL: {
     id: "PRO_ANNUAL",
+    prismaEnum: "PRO",
     name: "Professional",
     price: 1990,
     interval: "ANNUAL",
@@ -171,6 +178,22 @@ const BILLING_PLANS = {
     cta: "Start Pro Plan",
     savings: 398
   }
+} as const;
+
+const getPrismaPlan = (planId: string): "TRIAL" | "STARTER" | "GROWTH" | "PRO" => {
+  if (planId === "TRIAL") return "TRIAL";
+  if (planId.startsWith("STARTER")) return "STARTER";
+  if (planId.startsWith("GROWTH")) return "GROWTH";
+  if (planId.startsWith("PRO")) return "PRO";
+  return "TRIAL";
+};
+
+const getDisplayPlanFromPrisma = (prismaEnum: string, billingPeriod: "monthly" | "annual"): string => {
+  if (prismaEnum === "TRIAL") return "TRIAL";
+  if (prismaEnum === "STARTER") return billingPeriod === "annual" ? "STARTER_ANNUAL" : "STARTER_MONTHLY";
+  if (prismaEnum === "GROWTH") return billingPeriod === "annual" ? "GROWTH_ANNUAL" : "GROWTH_MONTHLY";
+  if (prismaEnum === "PRO") return billingPeriod === "annual" ? "PRO_ANNUAL" : "PRO_MONTHLY";
+  return "TRIAL";
 };
 
 const CREATE_SUBSCRIPTION_MUTATION = `
@@ -360,15 +383,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
             
             if (plan) {
+              const prismaEnum = getPrismaPlan(planId);
+              
               console.log("[PRICING] 💾 Updating shop:");
-              console.log("  - Plan:", planId);
+              console.log("  - Plan ID:", planId);
+              console.log("  - Prisma Enum:", prismaEnum);
               console.log("  - Credits:", plan.credits);
               console.log("  - MaxCredits:", plan.credits);
               
               await prisma.shop.update({
                 where: { id: shop.id },
                 data: {
-                  plan: planId,
+                  plan: prismaEnum as any,
                   credits: plan.credits,
                   maxCredits: plan.credits,
                 }
@@ -473,7 +499,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       await prisma.shop.update({
         where: { id: shop.id },
         data: {
-          plan: "TRIAL",
+          plan: "TRIAL" as any,
           credits: BILLING_PLANS.TRIAL.credits,
           maxCredits: BILLING_PLANS.TRIAL.credits,
         }
@@ -488,7 +514,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ error: "Invalid plan selected" }, { status: 400 });
       }
 
-      if (shop.plan === planId) {
+      const currentPrismaEnum = shop.plan;
+      const targetPrismaEnum = getPrismaPlan(planId);
+
+      if (currentPrismaEnum === targetPrismaEnum) {
         return json({ error: "Already on this plan" }, { status: 400 });
       }
 
@@ -615,7 +644,10 @@ export default function Pricing() {
   }, [success, navigate, revalidator]);
 
   const handleUpgrade = async (planId: string) => {
-    if (shop.plan === planId) return;
+    const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
+    const targetPrismaEnum = getPrismaPlan(planId);
+    
+    if (shop.plan === targetPrismaEnum) return;
     
     console.log("[PRICING UI] Initiating upgrade to:", planId);
     setIsLoading(planId);
@@ -643,7 +675,8 @@ export default function Pricing() {
     : [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_ANNUAL, BILLING_PLANS.GROWTH_ANNUAL, BILLING_PLANS.PRO_ANNUAL];
 
   const isPaidPlan = shop.plan !== "TRIAL";
-  const currentPlanName = BILLING_PLANS[shop.plan as keyof typeof BILLING_PLANS]?.name || "Free Trial";
+  const currentDisplayPlan = getDisplayPlanFromPrisma(shop.plan, billingPeriod);
+  const currentPlanConfig = BILLING_PLANS[currentDisplayPlan as keyof typeof BILLING_PLANS];
 
   return (
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "linear-gradient(180deg, #f6f6f7 0%, #ffffff 100%)", minHeight: "100vh" }}>
@@ -686,7 +719,7 @@ export default function Pricing() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
               <div>
                 <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>
-                  Active Subscription: {currentPlanName}
+                  Active Subscription: {currentPlanConfig?.name || shop.plan}
                 </h3>
                 <p style={{ margin: 0, opacity: 0.9, fontSize: "14px" }}>
                   Status: ACTIVE | Credits: {shop.credits}/{shop.maxCredits}
@@ -704,7 +737,8 @@ export default function Pricing() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px", marginBottom: "48px" }}>
           {displayPlans.map((plan) => {
-            const isCurrentPlan = shop.plan === plan.id;
+            const planPrismaEnum = getPrismaPlan(plan.id);
+            const isCurrentPlan = shop.plan === planPrismaEnum;
             const monthlyPrice = billingPeriod === "annual" && plan.interval === "ANNUAL" ? Math.round(plan.price / 12) : plan.price;
             
             return (
