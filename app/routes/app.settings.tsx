@@ -206,7 +206,6 @@ export default function Settings() {
           </p>
         </div>
 
-        {/* Tabs */}
         <div style={{ display: "flex", gap: "8px", marginBottom: "24px", borderBottom: "2px solid #e0e0e0", overflowX: "auto" }}>
           <button
             onClick={() => setActiveTab("general")}
@@ -268,7 +267,7 @@ export default function Settings() {
               fontSize: "14px",
               fontWeight: "600",
               color: activeTab === "legal" ? "#2196f3" : "#6d7175",
-              borderBottom: activeTab === "legal" ? "3px solid #2196f3" : "3px solid transparent",
+              borderBottom: activeTab === "legal" ? "3px solid #2196f3" : "3ps solid transparent",
               cursor: "pointer",
               marginBottom: "-2px",
               whiteSpace: "nowrap",
@@ -278,7 +277,6 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* General Tab */}
         {activeTab === "general" && (
           <div>
             <div
@@ -494,7 +492,6 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Custom Domains Tab */}
         {activeTab === "domains" && (
           <div
             style={{
@@ -548,7 +545,6 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Data & Privacy Tab */}
         {activeTab === "data" && (
           <div>
             <div
@@ -644,7 +640,6 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Legal & Compliance Tab */}
         {activeTab === "legal" && (
           <div>
             <div
