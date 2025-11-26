@@ -31,6 +31,7 @@ model Shop {
   shopName       String
   accessToken    String
   plan           Plan      @default(TRIAL)
+  billingInterval String   @default("MONTHLY") // "MONTHLY" or "ANNUAL"
   credits        Int       @default(25)
   maxCredits     Int       @default(25)
   installedAt    DateTime  @default(now())
