@@ -23,19 +23,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
   });
 
+  const optimizationsCount = await prisma.optimization.count({
+    where: { 
+      shopId: shop?.id,
+      status: "APPLIED"
+    },
+  });
+
   return json({
     shop: {
       id: shop?.id,
       shopName: shop?.shopName || "Store",
       shopifyDomain: shop?.shopifyDomain || session.shop,
       email: shop?.email || "",
-      credits: shop?.credits || 25,
-      maxCredits: shop?.maxCredits || 25,
+      credits: shop?.credits ?? 25,
+      maxCredits: shop?.maxCredits ?? 25,
       plan: shop?.plan || "TRIAL",
       createdAt: shop?.createdAt,
     },
     productCount,
     scansCount,
+    optimizationsCount,
   });
 };
 
@@ -156,10 +164,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Settings() {
-  const { shop, productCount, scansCount } = useLoaderData<typeof loader>();
+  const { shop, productCount, scansCount, optimizationsCount } = useLoaderData<typeof loader>();
   const [activeTab, setActiveTab] = useState<"general" | "domains" | "legal" | "data">("general");
   const [email, setEmail] = useState(shop.email);
   const fetcher = useFetcher();
+
+  const totalActions = scansCount + optimizationsCount;
 
   const handleSyncProducts = () => {
     const formData = new FormData();
@@ -361,18 +371,26 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginTop: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px", marginTop: "8px" }}>
                   <div style={{ padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
                     <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Current Plan</div>
                     <div style={{ fontSize: "20px", fontWeight: "600", color: "#202223" }}>{shop.plan}</div>
                   </div>
-                  <div style={{ padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
+                  <div style={{ padding: "16px", background: shop.credits === 0 ? "#ffebee" : "#f9f9f9", borderRadius: "8px" }}>
                     <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Credits</div>
-                    <div style={{ fontSize: "20px", fontWeight: "600", color: "#202223" }}>{shop.credits}/{shop.maxCredits}</div>
+                    <div style={{ fontSize: "20px", fontWeight: "600", color: shop.credits === 0 ? "#d32f2f" : "#202223" }}>{shop.credits}/{shop.maxCredits}</div>
                   </div>
                   <div style={{ padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
                     <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Total Scans</div>
                     <div style={{ fontSize: "20px", fontWeight: "600", color: "#202223" }}>{scansCount}</div>
+                  </div>
+                  <div style={{ padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
+                    <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Optimizations</div>
+                    <div style={{ fontSize: "20px", fontWeight: "600", color: "#202223" }}>{optimizationsCount}</div>
+                  </div>
+                  <div style={{ padding: "16px", background: "#e3f2fd", borderRadius: "8px" }}>
+                    <div style={{ fontSize: "14px", color: "#1976d2", marginBottom: "4px" }}>Total Actions</div>
+                    <div style={{ fontSize: "20px", fontWeight: "600", color: "#1976d2" }}>{totalActions}</div>
                   </div>
                 </div>
               </div>
@@ -452,7 +470,7 @@ export default function Settings() {
               </p>
               
               <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                <a
+                
                   href="mailto:support@rank-in-ai.com"
                   style={{
                     color: "#2196f3",
