@@ -17,19 +17,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     where: { shopId: shop?.id },
   });
 
-  const scansCount = await prisma.scan.count({
-    where: { 
-      shopId: shop?.id
-    },
-  });
-
-  const optimizationsCount = await prisma.optimization.count({
-    where: { 
-      shopId: shop?.id,
-      status: "APPLIED"
-    },
-  });
-
   return json({
     shop: {
       id: shop?.id,
@@ -42,8 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       createdAt: shop?.createdAt,
     },
     productCount,
-    scansCount,
-    optimizationsCount,
+
   });
 };
 
@@ -164,12 +150,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Settings() {
-  const { shop, productCount, scansCount, optimizationsCount } = useLoaderData<typeof loader>();
+  const { shop, productCount } = useLoaderData<typeof loader>();
   const [activeTab, setActiveTab] = useState<"general" | "domains" | "legal" | "data">("general");
   const [email, setEmail] = useState(shop.email);
   const fetcher = useFetcher();
 
-  const totalActions = scansCount + optimizationsCount;
 
   const handleSyncProducts = () => {
     const formData = new FormData();
@@ -378,18 +363,7 @@ export default function Settings() {
                     <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Credits</div>
                     <div style={{ fontSize: "20px", fontWeight: "600", color: shop.credits === 0 ? "#d32f2f" : "#202223" }}>{shop.credits}/{shop.maxCredits}</div>
                   </div>
-                  <div style={{ padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
-                    <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Total Scans</div>
-                    <div style={{ fontSize: "20px", fontWeight: "600", color: "#202223" }}>{scansCount}</div>
-                  </div>
-                  <div style={{ padding: "16px", background: "#f9f9f9", borderRadius: "8px" }}>
-                    <div style={{ fontSize: "14px", color: "#6d7175", marginBottom: "4px" }}>Optimizations</div>
-                    <div style={{ fontSize: "20px", fontWeight: "600", color: "#202223" }}>{optimizationsCount}</div>
-                  </div>
-                  <div style={{ padding: "16px", background: "#e3f2fd", borderRadius: "8px" }}>
-                    <div style={{ fontSize: "14px", color: "#1976d2", marginBottom: "4px" }}>Total Actions</div>
-                    <div style={{ fontSize: "20px", fontWeight: "600", color: "#1976d2" }}>{totalActions}</div>
-                  </div>
+
                 </div>
               </div>
             </div>
