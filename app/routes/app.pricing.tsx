@@ -196,6 +196,31 @@ const getDisplayPlanFromPrisma = (prismaEnum: string, billingPeriod: "monthly" |
   return "TRIAL";
 };
 
+const matchSubscriptionToPlan = (subscription: any): string | null => {
+  if (!subscription?.lineItems?.[0]?.plan?.pricingDetails) return null;
+  
+  const pricing = subscription.lineItems[0].plan.pricingDetails;
+  const amount = parseFloat(pricing.price?.amount || "0");
+  const interval = pricing.interval;
+  
+  console.log("[PRICING] Matching subscription:", { amount, interval });
+  
+  for (const [planId, plan] of Object.entries(BILLING_PLANS)) {
+    if (plan.price === amount) {
+      if (interval === "EVERY_30_DAYS" && plan.interval === "EVERY_30_DAYS") {
+        console.log("[PRICING] Matched plan:", planId);
+        return planId;
+      }
+      if (interval === "ANNUAL" && plan.interval === "ANNUAL") {
+        console.log("[PRICING] Matched plan:", planId);
+        return planId;
+      }
+    }
+  }
+  
+  return null;
+};
+
 const CREATE_SUBSCRIPTION_MUTATION = `
   mutation CreateSubscription(
     $name: String!
@@ -288,25 +313,6 @@ const ACTIVE_SUBSCRIPTIONS_QUERY = `
   }
 `;
 
-const VERIFY_CHARGE_QUERY = `
-  query VerifyCharge($id: ID!) {
-    node(id: $id) {
-      ... on AppSubscription {
-        id
-        status
-        name
-        createdAt
-      }
-      ... on AppPurchaseOneTime {
-        id
-        status
-        name
-        createdAt
-      }
-    }
-  }
-`;
-
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
@@ -341,90 +347,49 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.log("[PRICING LOADER] One-time purchases:", oneTimePurchases.length);
 
     const url = new URL(request.url);
-    const charge_id = url.searchParams.get("charge_id");
+    const planIdFromUrl = url.searchParams.get("plan_id");
     
-    if (charge_id && shop) {
+    if (shop && activeSubscriptions.length > 0) {
       console.log("═══════════════════════════════════════");
-      console.log("[PRICING] 🔍 CHARGE VERIFICATION START");
-      console.log("[PRICING] Charge ID:", charge_id);
+      console.log("[PRICING] 🔍 CHECKING ACTIVE SUBSCRIPTIONS");
       console.log("═══════════════════════════════════════");
       
-      try {
-        const verifyResponse = await admin.graphql(VERIFY_CHARGE_QUERY, {
-          variables: { id: charge_id }
-        });
-        const verifyData = await verifyResponse.json();
+      const latestSubscription = activeSubscriptions[0];
+      const matchedPlanId = matchSubscriptionToPlan(latestSubscription);
+      
+      if (matchedPlanId) {
+        const plan = BILLING_PLANS[matchedPlanId as keyof typeof BILLING_PLANS];
+        const prismaEnum = getPrismaPlan(matchedPlanId);
+        const billingInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
         
-        console.log("[PRICING] 📦 Raw GraphQL response:", JSON.stringify(verifyData, null, 2));
+        const needsUpdate = shop.plan !== prismaEnum || shop.billingInterval !== billingInterval;
         
-        const chargeNode = verifyData.data?.node;
-        
-        if (!chargeNode) {
-          console.error("[PRICING] ❌ Charge not found in Shopify");
-          console.log("═══════════════════════════════════════");
-          return redirect("/app/pricing?cancelled=true");
-        }
-        
-        const chargeStatus = chargeNode.status;
-        const chargeName = chargeNode.name;
-        const chargeCreatedAt = chargeNode.createdAt;
-        
-        console.log("[PRICING] 📊 Charge details:");
-        console.log("  - Status:", chargeStatus);
-        console.log("  - Name:", chargeName);
-        console.log("  - Created:", chargeCreatedAt);
-        console.log("  - Type:", chargeNode.id.includes("AppSubscription") ? "SUBSCRIPTION" : "ONE_TIME");
-        
-        if (chargeStatus === "ACTIVE" || chargeStatus === "PAID") {
-          const planId = url.searchParams.get("plan_id");
+        if (needsUpdate) {
+          console.log("[PRICING] 💾 Syncing DB with active subscription:");
+          console.log("  - Matched Plan:", matchedPlanId);
+          console.log("  - Prisma Enum:", prismaEnum);
+          console.log("  - Billing Interval:", billingInterval);
+          console.log("  - Credits:", plan.credits);
           
-          console.log("[PRICING] ✅ Charge is valid:", chargeStatus);
-          console.log("[PRICING] 🎯 Plan to apply:", planId);
-          
-          if (planId) {
-            const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
-            
-            if (plan) {
-              const prismaEnum = getPrismaPlan(planId);
-              const billingInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
-              
-              console.log("[PRICING] 💾 Updating shop:");
-              console.log("  - Plan ID:", planId);
-              console.log("  - Prisma Enum:", prismaEnum);
-              console.log("  - Billing Interval:", billingInterval);
-              console.log("  - Credits:", plan.credits);
-              console.log("  - MaxCredits:", plan.credits);
-              
-              await prisma.shop.update({
-                where: { id: shop.id },
-                data: {
-                  plan: prismaEnum as any,
-                  billingInterval: billingInterval,
-                  credits: plan.credits,
-                  maxCredits: plan.credits,
-                }
-              });
-              
-              console.log("[PRICING] ✅ Shop updated successfully");
-              console.log("═══════════════════════════════════════");
-              return redirect("/app/pricing?success=true");
-            } else {
-              console.error("[PRICING] ❌ Invalid plan ID:", planId);
-              console.log("═══════════════════════════════════════");
+          await prisma.shop.update({
+            where: { id: shop.id },
+            data: {
+              plan: prismaEnum as any,
+              billingInterval: billingInterval,
+              credits: plan.credits,
+              maxCredits: plan.credits,
             }
+          });
+          
+          console.log("[PRICING] ✅ Shop synced with active subscription");
+          console.log("═══════════════════════════════════════");
+          
+          if (planIdFromUrl) {
+            return redirect("/app/pricing?success=true");
           }
         } else {
-          console.warn("[PRICING] ⚠️ Charge status not ACTIVE/PAID:", chargeStatus);
-          console.log("[PRICING] Valid statuses: ACTIVE, PAID");
-          console.log("[PRICING] Redirecting to cancelled");
-          console.log("═══════════════════════════════════════");
-          return redirect("/app/pricing?cancelled=true");
+          console.log("[PRICING] ℹ️  Shop already synced with subscription");
         }
-      } catch (verifyError: any) {
-        console.error("[PRICING] ❌ Error verifying charge:", verifyError.message);
-        console.error("[PRICING] Stack:", verifyError.stack);
-        console.log("═══════════════════════════════════════");
-        return redirect("/app/pricing?cancelled=true");
       }
     }
 
@@ -535,7 +500,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       console.log("[PRICING ACTION] Creating charge for plan:", planId);
 
-      const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?charge_id={CHARGE_ID}&plan_id=${planId}`;
+      const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?plan_id=${planId}`;
       
       let confirmationUrl: string | null = null;
 
