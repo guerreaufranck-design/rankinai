@@ -62,7 +62,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     if (action === "syncProducts") {
-      const productsQuery = \`
+      const productsQuery = `
         query {
           products(first: 250, query: "status:active") {
             edges {
@@ -77,7 +77,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
           }
         }
-      \`;
+      `;
 
       const response = await admin.graphql(productsQuery);
       const data = await response.json();
@@ -114,7 +114,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         } else {
           await prisma.product.create({
             data: {
-              id: \`prod_\${Date.now()}_\${Math.random().toString(36).substring(2, 9)}\`,
+              id: `prod_\${Date.now()}_\${Math.random().toString(36).substring(2, 9)}`,
               shopId: shop.id,
               shopifyId: product.legacyResourceId,
               shopifyGid: product.id,
@@ -130,7 +130,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       return json({ 
         success: true, 
-        message: \`Synced \${syncedCount + newCount} products (\${newCount} new, \${syncedCount} updated)\`,
+        message: `Synced \${syncedCount + newCount} products (\${newCount} new, \${syncedCount} updated)`,
         syncedCount,
         newCount,
       });
