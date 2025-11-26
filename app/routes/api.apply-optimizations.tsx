@@ -75,9 +75,8 @@ export const action: ActionFunction = async ({ request }) => {
     await prisma.optimization.update({
       where: { id: optimizationId },
       data: {
-        isApplied: true,
-        appliedAt: new Date(),
-        appliedMethod: 'AUTO'
+        status: "APPLIED",
+        appliedAt: new Date()
       }
     });
     
