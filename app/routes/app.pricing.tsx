@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { json, redirect } from "~/utils/response";
-import { useLoaderData, useFetcher, useNavigate } from "react-router";
+import { useLoaderData, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "~/shopify.server";
 import { prisma } from "~/db.server";
 import { useState, useEffect } from "react";
@@ -272,11 +272,13 @@ const VERIFY_CHARGE_QUERY = `
         id
         status
         name
+        createdAt
       }
       ... on AppPurchaseOneTime {
         id
         status
         name
+        createdAt
       }
     }
   }
@@ -298,15 +300,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       }
     });
 
-    const shopInfoResponse = await admin.graphql(`
-      query {
-        shop {
-          currencyCode
-        }
-      }
-    `);
-    const shopInfoData = await shopInfoResponse.json();
-    const currency = shopInfoData.data?.shop?.currencyCode || "USD";
+    console.log("[PRICING LOADER] Current shop state:", {
+      plan: shop?.plan,
+      credits: shop?.credits,
+      maxCredits: shop?.maxCredits
+    });
 
     const response = await admin.graphql(ACTIVE_SUBSCRIPTIONS_QUERY);
     const data = await response.json();
@@ -314,40 +312,58 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const activeSubscriptions = data.data?.currentAppInstallation?.activeSubscriptions || [];
     const oneTimePurchases = data.data?.currentAppInstallation?.oneTimePurchases?.edges || [];
 
+    console.log("[PRICING LOADER] Active subscriptions:", activeSubscriptions.length);
+    console.log("[PRICING LOADER] One-time purchases:", oneTimePurchases.length);
+
     const url = new URL(request.url);
     const charge_id = url.searchParams.get("charge_id");
     
     if (charge_id && shop) {
-      console.log("[PRICING] Verifying charge:", charge_id);
+      console.log("═══════════════════════════════════════");
+      console.log("[PRICING] 🔍 CHARGE VERIFICATION START");
+      console.log("[PRICING] Charge ID:", charge_id);
+      console.log("═══════════════════════════════════════");
       
       try {
-        // CRITICAL: Verify charge status before updating credits
         const verifyResponse = await admin.graphql(VERIFY_CHARGE_QUERY, {
           variables: { id: charge_id }
         });
         const verifyData = await verifyResponse.json();
         
-        console.log("[PRICING] Charge verification result:", JSON.stringify(verifyData, null, 2));
+        console.log("[PRICING] 📦 Raw GraphQL response:", JSON.stringify(verifyData, null, 2));
         
         const chargeNode = verifyData.data?.node;
         
         if (!chargeNode) {
-          console.error("[PRICING] Charge not found:", charge_id);
+          console.error("[PRICING] ❌ Charge not found in Shopify");
+          console.log("═══════════════════════════════════════");
           return redirect("/app/pricing?cancelled=true");
         }
         
         const chargeStatus = chargeNode.status;
-        console.log("[PRICING] Charge status:", chargeStatus);
+        const chargeName = chargeNode.name;
+        const chargeCreatedAt = chargeNode.createdAt;
         
-        // Only update credits if charge is ACTIVE (subscription) or PAID (one-time)
+        console.log("[PRICING] 📊 Charge details:");
+        console.log("  - Status:", chargeStatus);
+        console.log("  - Name:", chargeName);
+        console.log("  - Created:", chargeCreatedAt);
+        console.log("  - Type:", chargeNode.id.includes("AppSubscription") ? "SUBSCRIPTION" : "ONE_TIME");
+        
         if (chargeStatus === "ACTIVE" || chargeStatus === "PAID") {
           const planId = url.searchParams.get("plan_id");
+          
+          console.log("[PRICING] ✅ Charge is valid:", chargeStatus);
+          console.log("[PRICING] 🎯 Plan to apply:", planId);
           
           if (planId) {
             const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
             
             if (plan) {
-              console.log("[PRICING] Updating shop to plan:", planId, "with credits:", plan.credits);
+              console.log("[PRICING] 💾 Updating shop:");
+              console.log("  - Plan:", planId);
+              console.log("  - Credits:", plan.credits);
+              console.log("  - MaxCredits:", plan.credits);
               
               await prisma.shop.update({
                 where: { id: shop.id },
@@ -358,18 +374,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 }
               });
               
-              console.log("[PRICING] Credits updated successfully");
+              console.log("[PRICING] ✅ Shop updated successfully");
+              console.log("═══════════════════════════════════════");
               return redirect("/app/pricing?success=true");
             } else {
-              console.error("[PRICING] Invalid plan ID:", planId);
+              console.error("[PRICING] ❌ Invalid plan ID:", planId);
+              console.log("═══════════════════════════════════════");
             }
           }
         } else {
-          console.warn("[PRICING] Charge status not active:", chargeStatus);
+          console.warn("[PRICING] ⚠️ Charge status not ACTIVE/PAID:", chargeStatus);
+          console.log("[PRICING] Valid statuses: ACTIVE, PAID");
+          console.log("[PRICING] Redirecting to cancelled");
+          console.log("═══════════════════════════════════════");
           return redirect("/app/pricing?cancelled=true");
         }
-      } catch (verifyError) {
-        console.error("[PRICING] Error verifying charge:", verifyError);
+      } catch (verifyError: any) {
+        console.error("[PRICING] ❌ Error verifying charge:", verifyError.message);
+        console.error("[PRICING] Stack:", verifyError.stack);
+        console.log("═══════════════════════════════════════");
         return redirect("/app/pricing?cancelled=true");
       }
     }
@@ -383,7 +406,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       },
       activeSubscriptions,
       oneTimePurchases,
-      currency,
       success: url.searchParams.get("success") === "true",
       cancelled: url.searchParams.get("cancelled") === "true",
     });
@@ -398,7 +420,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       },
       activeSubscriptions: [],
       oneTimePurchases: [],
-      currency: "USD",
       error: "Failed to load pricing information"
     });
   }
@@ -418,16 +439,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (!shop) {
       return json({ error: "Shop not found" }, { status: 404 });
     }
-
-    const shopInfoResponse = await admin.graphql(`
-      query {
-        shop {
-          currencyCode
-        }
-      }
-    `);
-    const shopInfoData = await shopInfoResponse.json();
-    const currency = shopInfoData.data?.shop?.currencyCode || "USD";
 
     if (action === "cancel") {
       const subscriptionId = formData.get("subscriptionId") as string;
@@ -485,17 +496,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ error: "Cannot downgrade to trial" }, { status: 400 });
       }
 
+      console.log("[PRICING ACTION] Creating charge for plan:", planId);
+
       const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?charge_id={CHARGE_ID}&plan_id=${planId}`;
       
       let confirmationUrl: string | null = null;
 
       if (plan.interval === "ANNUAL") {
+        console.log("[PRICING ACTION] Creating one-time purchase");
+        
         const response = await admin.graphql(CREATE_PURCHASE_MUTATION, {
           variables: {
             name: `RankInAI ${plan.name} Annual Plan`,
             price: {
               amount: plan.price,
-              currencyCode: currency
+              currencyCode: "USD"
             },
             returnUrl,
             test: process.env.NODE_ENV !== "production"
@@ -503,6 +518,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         });
 
         const result = await response.json();
+        
+        console.log("[PRICING ACTION] Purchase result:", JSON.stringify(result, null, 2));
         
         if (result.data?.appPurchaseOneTimeCreate?.userErrors?.length > 0) {
           return json({ 
@@ -513,6 +530,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         confirmationUrl = result.data?.appPurchaseOneTimeCreate?.confirmationUrl;
 
       } else {
+        console.log("[PRICING ACTION] Creating recurring subscription");
+        
         const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
           variables: {
             name: `RankInAI ${plan.name} Plan`,
@@ -521,7 +540,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 appRecurringPricingDetails: {
                   price: {
                     amount: plan.price,
-                    currencyCode: currency
+                    currencyCode: "USD"
                   },
                   interval: plan.interval
                 }
@@ -533,6 +552,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         });
 
         const result = await response.json();
+        
+        console.log("[PRICING ACTION] Subscription result:", JSON.stringify(result, null, 2));
         
         if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
           return json({ 
@@ -546,6 +567,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (!confirmationUrl) {
         return json({ error: "Failed to create billing charge" }, { status: 500 });
       }
+
+      console.log("[PRICING ACTION] Confirmation URL generated:", confirmationUrl);
 
       return json({ confirmationUrl });
     }
@@ -561,14 +584,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Pricing() {
-  const { shop, activeSubscriptions, oneTimePurchases, currency, success, cancelled } = useLoaderData<typeof loader>();
+  const { shop, activeSubscriptions, oneTimePurchases, success, cancelled } = useLoaderData<typeof loader>();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const fetcher = useFetcher();
   const navigate = useNavigate();
+  const revalidator = useRevalidator();
 
   useEffect(() => {
     if (fetcher.data?.confirmationUrl) {
+      console.log("[PRICING UI] Redirecting to Shopify confirmation:", fetcher.data.confirmationUrl);
       if (window.top) {
         window.top.location.href = fetcher.data.confirmationUrl;
       } else {
@@ -579,15 +604,20 @@ export default function Pricing() {
 
   useEffect(() => {
     if (success) {
+      console.log("[PRICING UI] ✅ Success detected - revalidating parent context");
+      revalidator.revalidate();
+      
       setTimeout(() => {
+        console.log("[PRICING UI] Redirecting to dashboard");
         navigate("/app");
       }, 3000);
     }
-  }, [success, navigate]);
+  }, [success, navigate, revalidator]);
 
   const handleUpgrade = async (planId: string) => {
     if (shop.plan === planId) return;
     
+    console.log("[PRICING UI] Initiating upgrade to:", planId);
     setIsLoading(planId);
     
     const formData = new FormData();
@@ -599,6 +629,7 @@ export default function Pricing() {
 
   const handleCancelSubscription = async (subscriptionId: string) => {
     if (confirm("Are you sure you want to cancel your subscription? You will lose access to premium features.")) {
+      console.log("[PRICING UI] Cancelling subscription:", subscriptionId);
       const formData = new FormData();
       formData.append("_action", "cancel");
       formData.append("subscriptionId", subscriptionId);
@@ -611,15 +642,8 @@ export default function Pricing() {
     ? [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_MONTHLY, BILLING_PLANS.GROWTH_MONTHLY, BILLING_PLANS.PRO_MONTHLY]
     : [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_ANNUAL, BILLING_PLANS.GROWTH_ANNUAL, BILLING_PLANS.PRO_ANNUAL];
 
-  const getCurrencySymbol = (code: string) => {
-    const symbols: { [key: string]: string } = {
-      USD: "$", EUR: "€", GBP: "£", CAD: "CA$", AUD: "A$", JPY: "¥",
-      CHF: "CHF ", SEK: "kr", NOK: "kr", DKK: "kr", NZD: "NZ$", SGD: "S$", HKD: "HK$",
-    };
-    return symbols[currency] || currency + " ";
-  };
-
-  const currencySymbol = getCurrencySymbol(currency);
+  const isPaidPlan = shop.plan !== "TRIAL";
+  const currentPlanName = BILLING_PLANS[shop.plan as keyof typeof BILLING_PLANS]?.name || "Free Trial";
 
   return (
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "linear-gradient(180deg, #f6f6f7 0%, #ffffff 100%)", minHeight: "100vh" }}>
@@ -657,14 +681,23 @@ export default function Pricing() {
           </div>
         </div>
 
-        {activeSubscriptions.length > 0 && (
+        {isPaidPlan && (
           <div style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", color: "white", padding: "20px 24px", borderRadius: "12px", marginBottom: "32px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
               <div>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>Active Subscription: {activeSubscriptions[0].name}</h3>
-                <p style={{ margin: 0, opacity: 0.9, fontSize: "14px" }}>Status: {activeSubscriptions[0].status} | Credits: {shop.credits}/{shop.maxCredits} | Next billing: {new Date(activeSubscriptions[0].currentPeriodEnd).toLocaleDateString()}</p>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", fontWeight: "600" }}>
+                  Active Subscription: {currentPlanName}
+                </h3>
+                <p style={{ margin: 0, opacity: 0.9, fontSize: "14px" }}>
+                  Status: ACTIVE | Credits: {shop.credits}/{shop.maxCredits}
+                  {activeSubscriptions.length > 0 && ` | Next billing: ${new Date(activeSubscriptions[0].currentPeriodEnd).toLocaleDateString()}`}
+                </p>
               </div>
-              <button onClick={() => handleCancelSubscription(activeSubscriptions[0].id)} style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.3)", padding: "8px 16px", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>Cancel Subscription</button>
+              {activeSubscriptions.length > 0 && (
+                <button onClick={() => handleCancelSubscription(activeSubscriptions[0].id)} style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.3)", padding: "8px 16px", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>
+                  Cancel Subscription
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -688,7 +721,7 @@ export default function Pricing() {
                       <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>Free</span>
                     ) : (
                       <>
-                        <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>{currencySymbol}{monthlyPrice}</span>
+                        <span style={{ fontSize: "40px", fontWeight: "700", color: plan.color }}>${monthlyPrice}</span>
                         <span style={{ fontSize: "16px", color: "#6d7175" }}>/month</span>
                       </>
                     )}
@@ -696,8 +729,8 @@ export default function Pricing() {
                   
                   {billingPeriod === "annual" && plan.interval === "ANNUAL" && (
                     <>
-                      <div style={{ fontSize: "14px", color: "#6d7175", marginTop: "4px" }}>{currencySymbol}{plan.price} billed annually</div>
-                      {plan.savings && <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>Save {currencySymbol}{plan.savings} per year</div>}
+                      <div style={{ fontSize: "14px", color: "#6d7175", marginTop: "4px" }}>${plan.price} billed annually</div>
+                      {plan.savings && <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>Save ${plan.savings} per year</div>}
                     </>
                   )}
                   
