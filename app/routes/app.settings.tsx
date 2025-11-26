@@ -62,7 +62,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     if (action === "syncProducts") {
-      const productsQuery = `
+      const productsQuery = \`
         query {
           products(first: 250, query: "status:active") {
             edges {
@@ -77,7 +77,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
           }
         }
-      `;
+      \`;
 
       const response = await admin.graphql(productsQuery);
       const data = await response.json();
@@ -114,7 +114,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         } else {
           await prisma.product.create({
             data: {
-              id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              id: \`prod_\${Date.now()}_\${Math.random().toString(36).substring(2, 9)}\`,
               shopId: shop.id,
               shopifyId: product.legacyResourceId,
               shopifyGid: product.id,
@@ -130,7 +130,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       return json({ 
         success: true, 
-        message: `Synced ${syncedCount + newCount} products (${newCount} new, ${syncedCount} updated)`,
+        message: \`Synced \${syncedCount + newCount} products (\${newCount} new, \${syncedCount} updated)\`,
         syncedCount,
         newCount,
       });
@@ -267,7 +267,7 @@ export default function Settings() {
               fontSize: "14px",
               fontWeight: "600",
               color: activeTab === "legal" ? "#2196f3" : "#6d7175",
-              borderBottom: activeTab === "legal" ? "3px solid #2196f3" : "3ps solid transparent",
+              borderBottom: activeTab === "legal" ? "3px solid #2196f3" : "3px solid transparent",
               cursor: "pointer",
               marginBottom: "-2px",
               whiteSpace: "nowrap",
@@ -468,17 +468,7 @@ export default function Settings() {
               </p>
               
               <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                
-                  href="mailto:support@rank-in-ai.com"
-                  style={{
-                    color: "#2196f3",
-                    textDecoration: "none",
-                    fontSize: "14px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px"
-                  }}
-                >
+                <a href="mailto:support@rank-in-ai.com" style={{ color: "#2196f3", textDecoration: "none", fontSize: "14px", display: "flex", alignItems: "center", gap: "4px" }}>
                   📧 support@rank-in-ai.com
                 </a>
                 <span style={{ fontSize: "14px", color: "#6d7175" }}>
