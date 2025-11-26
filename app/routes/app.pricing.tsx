@@ -318,6 +318,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shopName: true,
         shopifyDomain: true,
         plan: true,
+        billingInterval: true,
         credits: true,
         maxCredits: true,
       }
@@ -325,6 +326,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     console.log("[PRICING LOADER] Current shop state:", {
       plan: shop?.plan,
+      billingInterval: shop?.billingInterval,
       credits: shop?.credits,
       maxCredits: shop?.maxCredits
     });
@@ -384,10 +386,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             
             if (plan) {
               const prismaEnum = getPrismaPlan(planId);
+              const billingInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
               
               console.log("[PRICING] 💾 Updating shop:");
               console.log("  - Plan ID:", planId);
               console.log("  - Prisma Enum:", prismaEnum);
+              console.log("  - Billing Interval:", billingInterval);
               console.log("  - Credits:", plan.credits);
               console.log("  - MaxCredits:", plan.credits);
               
@@ -395,6 +399,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 where: { id: shop.id },
                 data: {
                   plan: prismaEnum as any,
+                  billingInterval: billingInterval,
                   credits: plan.credits,
                   maxCredits: plan.credits,
                 }
@@ -426,6 +431,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({
       shop: shop || {
         plan: "TRIAL",
+        billingInterval: "MONTHLY",
         credits: BILLING_PLANS.TRIAL.credits,
         maxCredits: BILLING_PLANS.TRIAL.credits,
         shopName: "Store",
@@ -440,6 +446,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({
       shop: {
         plan: "TRIAL",
+        billingInterval: "MONTHLY",
         credits: BILLING_PLANS.TRIAL.credits,
         maxCredits: BILLING_PLANS.TRIAL.credits,
         shopName: "Store",
@@ -500,6 +507,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         where: { id: shop.id },
         data: {
           plan: "TRIAL" as any,
+          billingInterval: "MONTHLY",
           credits: BILLING_PLANS.TRIAL.credits,
           maxCredits: BILLING_PLANS.TRIAL.credits,
         }
@@ -675,7 +683,10 @@ export default function Pricing() {
     : [BILLING_PLANS.TRIAL, BILLING_PLANS.STARTER_ANNUAL, BILLING_PLANS.GROWTH_ANNUAL, BILLING_PLANS.PRO_ANNUAL];
 
   const isPaidPlan = shop.plan !== "TRIAL";
-  const currentDisplayPlan = getDisplayPlanFromPrisma(shop.plan, billingPeriod);
+  const currentDisplayPlan = getDisplayPlanFromPrisma(
+    shop.plan, 
+    shop.billingInterval === "ANNUAL" ? "annual" : "monthly"
+  );
   const currentPlanConfig = BILLING_PLANS[currentDisplayPlan as keyof typeof BILLING_PLANS];
 
   return (
@@ -738,7 +749,8 @@ export default function Pricing() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px", marginBottom: "48px" }}>
           {displayPlans.map((plan) => {
             const planPrismaEnum = getPrismaPlan(plan.id);
-            const isCurrentPlan = shop.plan === planPrismaEnum;
+            const planInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
+            const isCurrentPlan = shop.plan === planPrismaEnum && shop.billingInterval === planInterval;
             const monthlyPrice = billingPeriod === "annual" && plan.interval === "ANNUAL" ? Math.round(plan.price / 12) : plan.price;
             
             return (
