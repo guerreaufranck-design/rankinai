@@ -265,6 +265,23 @@ const ACTIVE_SUBSCRIPTIONS_QUERY = `
   }
 `;
 
+const VERIFY_CHARGE_QUERY = `
+  query VerifyCharge($id: ID!) {
+    node(id: $id) {
+      ... on AppSubscription {
+        id
+        status
+        name
+      }
+      ... on AppPurchaseOneTime {
+        id
+        status
+        name
+      }
+    }
+  }
+`;
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
@@ -300,21 +317,60 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const url = new URL(request.url);
     const charge_id = url.searchParams.get("charge_id");
     
-    if (charge_id) {
-      const planId = url.searchParams.get("plan_id");
-      if (planId && shop) {
-        const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
-        if (plan) {
-          await prisma.shop.update({
-            where: { id: shop.id },
-            data: {
-              plan: planId,
-              credits: plan.credits,
-              maxCredits: plan.credits,
-            }
-          });
-          return redirect("/app/pricing?success=true");
+    if (charge_id && shop) {
+      console.log("[PRICING] Verifying charge:", charge_id);
+      
+      try {
+        // CRITICAL: Verify charge status before updating credits
+        const verifyResponse = await admin.graphql(VERIFY_CHARGE_QUERY, {
+          variables: { id: charge_id }
+        });
+        const verifyData = await verifyResponse.json();
+        
+        console.log("[PRICING] Charge verification result:", JSON.stringify(verifyData, null, 2));
+        
+        const chargeNode = verifyData.data?.node;
+        
+        if (!chargeNode) {
+          console.error("[PRICING] Charge not found:", charge_id);
+          return redirect("/app/pricing?cancelled=true");
         }
+        
+        const chargeStatus = chargeNode.status;
+        console.log("[PRICING] Charge status:", chargeStatus);
+        
+        // Only update credits if charge is ACTIVE (subscription) or PAID (one-time)
+        if (chargeStatus === "ACTIVE" || chargeStatus === "PAID") {
+          const planId = url.searchParams.get("plan_id");
+          
+          if (planId) {
+            const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
+            
+            if (plan) {
+              console.log("[PRICING] Updating shop to plan:", planId, "with credits:", plan.credits);
+              
+              await prisma.shop.update({
+                where: { id: shop.id },
+                data: {
+                  plan: planId,
+                  credits: plan.credits,
+                  maxCredits: plan.credits,
+                }
+              });
+              
+              console.log("[PRICING] Credits updated successfully");
+              return redirect("/app/pricing?success=true");
+            } else {
+              console.error("[PRICING] Invalid plan ID:", planId);
+            }
+          }
+        } else {
+          console.warn("[PRICING] Charge status not active:", chargeStatus);
+          return redirect("/app/pricing?cancelled=true");
+        }
+      } catch (verifyError) {
+        console.error("[PRICING] Error verifying charge:", verifyError);
+        return redirect("/app/pricing?cancelled=true");
       }
     }
 
