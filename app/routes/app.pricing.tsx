@@ -221,6 +221,7 @@ const matchSubscriptionToPlan = (subscription: any): string | null => {
   return null;
 };
 
+// ✅ MUTATION UNIQUE pour TOUS les abonnements (mensuels ET annuels)
 const CREATE_SUBSCRIPTION_MUTATION = `
   mutation CreateSubscription(
     $name: String!
@@ -246,30 +247,8 @@ const CREATE_SUBSCRIPTION_MUTATION = `
   }
 `;
 
-const CREATE_PURCHASE_MUTATION = `
-  mutation CreatePurchase(
-    $name: String!
-    $price: MoneyInput!
-    $returnUrl: URL!
-    $test: Boolean
-  ) {
-    appPurchaseOneTimeCreate(
-      name: $name
-      price: $price
-      returnUrl: $returnUrl
-      test: $test
-    ) {
-      appPurchaseOneTime {
-        id
-      }
-      confirmationUrl
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
+// ❌ SUPPRIMÉ - Ne plus utiliser pour les plans annuels
+// const CREATE_PURCHASE_MUTATION = `...`
 
 const ACTIVE_SUBSCRIPTIONS_QUERY = `
   query GetActiveSubscriptions {
@@ -294,20 +273,6 @@ const ACTIVE_SUBSCRIPTIONS_QUERY = `
         }
         createdAt
         currentPeriodEnd
-      }
-      oneTimePurchases(first: 10, sortKey: CREATED_AT, reverse: true) {
-        edges {
-          node {
-            id
-            name
-            price {
-              amount
-              currencyCode
-            }
-            status
-            createdAt
-          }
-        }
       }
     }
   }
@@ -341,10 +306,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const data = await response.json();
     
     const activeSubscriptions = data.data?.currentAppInstallation?.activeSubscriptions || [];
-    const oneTimePurchases = data.data?.currentAppInstallation?.oneTimePurchases?.edges || [];
 
     console.log("[PRICING LOADER] Active subscriptions:", activeSubscriptions.length);
-    console.log("[PRICING LOADER] One-time purchases:", oneTimePurchases.length);
 
     const url = new URL(request.url);
     const planIdFromUrl = url.searchParams.get("plan_id");
@@ -402,7 +365,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shopName: "Store",
       },
       activeSubscriptions,
-      oneTimePurchases,
       success: url.searchParams.get("success") === "true",
       cancelled: url.searchParams.get("cancelled") === "true",
     });
@@ -417,7 +379,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         shopName: "Store",
       },
       activeSubscriptions: [],
-      oneTimePurchases: [],
       error: "Failed to load pricing information"
     });
   }
@@ -498,73 +459,43 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ error: "Cannot downgrade to trial" }, { status: 400 });
       }
 
-      console.log("[PRICING ACTION] Creating charge for plan:", planId);
+      console.log("[PRICING ACTION] Creating subscription for plan:", planId);
+      console.log("[PRICING ACTION] Plan interval:", plan.interval);
 
       const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?plan_id=${planId}`;
       
-      let confirmationUrl: string | null = null;
-
-      if (plan.interval === "ANNUAL") {
-        console.log("[PRICING ACTION] Creating one-time purchase");
-        
-        const response = await admin.graphql(CREATE_PURCHASE_MUTATION, {
-          variables: {
-            name: `RankInAI ${plan.name} Annual Plan`,
-            price: {
-              amount: plan.price,
-              currencyCode: "USD"
-            },
-            returnUrl,
-            test: process.env.NODE_ENV !== "production"
-          }
-        });
-
-        const result = await response.json();
-        
-        console.log("[PRICING ACTION] Purchase result:", JSON.stringify(result, null, 2));
-        
-        if (result.data?.appPurchaseOneTimeCreate?.userErrors?.length > 0) {
-          return json({ 
-            error: result.data.appPurchaseOneTimeCreate.userErrors[0].message 
-          }, { status: 400 });
-        }
-
-        confirmationUrl = result.data?.appPurchaseOneTimeCreate?.confirmationUrl;
-
-      } else {
-        console.log("[PRICING ACTION] Creating recurring subscription");
-        
-        const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
-          variables: {
-            name: `RankInAI ${plan.name} Plan`,
-            lineItems: [{
-              plan: {
-                appRecurringPricingDetails: {
-                  price: {
-                    amount: plan.price,
-                    currencyCode: "USD"
-                  },
-                  interval: plan.interval
-                }
+      // ✅ CORRECTION: Utiliser appSubscriptionCreate pour TOUS les plans (mensuels ET annuels)
+      // La seule différence est l'interval: EVERY_30_DAYS vs ANNUAL
+      const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
+        variables: {
+          name: `RankInAI ${plan.name} ${plan.interval === "ANNUAL" ? "Annual" : "Monthly"} Plan`,
+          lineItems: [{
+            plan: {
+              appRecurringPricingDetails: {
+                price: {
+                  amount: plan.price,
+                  currencyCode: "USD"
+                },
+                interval: plan.interval // "EVERY_30_DAYS" ou "ANNUAL"
               }
-            }],
-            returnUrl,
-            test: process.env.NODE_ENV !== "production"
-          }
-        });
-
-        const result = await response.json();
-        
-        console.log("[PRICING ACTION] Subscription result:", JSON.stringify(result, null, 2));
-        
-        if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-          return json({ 
-            error: result.data.appSubscriptionCreate.userErrors[0].message 
-          }, { status: 400 });
+            }
+          }],
+          returnUrl,
+          test: process.env.NODE_ENV !== "production"
         }
+      });
 
-        confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
+      const result = await response.json();
+      
+      console.log("[PRICING ACTION] Subscription result:", JSON.stringify(result, null, 2));
+      
+      if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
+        return json({ 
+          error: result.data.appSubscriptionCreate.userErrors[0].message 
+        }, { status: 400 });
       }
+
+      const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
 
       if (!confirmationUrl) {
         return json({ error: "Failed to create billing charge" }, { status: 500 });
@@ -586,7 +517,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Pricing() {
-  const { shop, activeSubscriptions, oneTimePurchases, success, cancelled } = useLoaderData<typeof loader>();
+  const { shop, activeSubscriptions, success, cancelled } = useLoaderData<typeof loader>();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const fetcher = useFetcher();
