@@ -451,7 +451,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const currentPrismaEnum = shop.plan;
       const targetPrismaEnum = getPrismaPlan(planId);
 
-      if (currentPrismaEnum === targetPrismaEnum) {
+      const currentInterval = shop.billingInterval;
+    const targetInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
+
+    if (currentPrismaEnum === targetPrismaEnum && currentInterval === targetInterval) {
         return json({ error: "Already on this plan" }, { status: 400 });
       }
 
