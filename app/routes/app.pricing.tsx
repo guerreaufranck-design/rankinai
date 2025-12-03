@@ -462,7 +462,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log("[PRICING ACTION] Creating subscription for plan:", planId);
       console.log("[PRICING ACTION] Plan interval:", plan.interval);
 
-      const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?plan_id=${planId}`;
+      const returnUrl = `https://${session.shop}/admin/apps/rankinai/pricing?plan_id=${planId}`;
       
       // ✅ CORRECTION: Utiliser appSubscriptionCreate pour TOUS les plans (mensuels ET annuels)
       // La seule différence est l'interval: EVERY_30_DAYS vs ANNUAL
