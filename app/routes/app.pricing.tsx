@@ -247,9 +247,6 @@ const CREATE_SUBSCRIPTION_MUTATION = `
   }
 `;
 
-// ❌ SUPPRIMÉ - Ne plus utiliser pour les plans annuels
-// const CREATE_PURCHASE_MUTATION = `...`
-
 const ACTIVE_SUBSCRIPTIONS_QUERY = `
   query GetActiveSubscriptions {
     currentAppInstallation {
@@ -450,25 +447,35 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       const currentPrismaEnum = shop.plan;
       const targetPrismaEnum = getPrismaPlan(planId);
-
       const currentInterval = shop.billingInterval;
-    const targetInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
+      const targetInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
 
-    if (currentPrismaEnum === targetPrismaEnum && currentInterval === targetInterval) {
-        return json({ error: "Already on this plan" }, { status: 400 });
+      // ✅ Validation: bloquer seulement si MÊME tier ET MÊME interval
+      if (currentPrismaEnum === targetPrismaEnum && currentInterval === targetInterval) {
+        return json({ error: "You are already on this plan" }, { status: 400 });
       }
 
       if (planId === "TRIAL") {
-        return json({ error: "Cannot downgrade to trial" }, { status: 400 });
+        return json({ error: "Cannot switch to trial. Please cancel your subscription instead." }, { status: 400 });
       }
 
       console.log("[PRICING ACTION] Creating subscription for plan:", planId);
-      console.log("[PRICING ACTION] Plan interval:", plan.interval);
+      console.log("[PRICING ACTION] Plan details:", {
+        name: plan.name,
+        price: plan.price,
+        interval: plan.interval,
+        currentPlan: currentPrismaEnum,
+        currentInterval: currentInterval,
+        targetPlan: targetPrismaEnum,
+        targetInterval: targetInterval
+      });
 
-      const returnUrl = `https://${session.shop}/admin/apps/rankinai/pricing?plan_id=${planId}`;
+      // ✅ FIX POINT 3: Correction du returnUrl - ajout de /app dans le path
+      const returnUrl = `https://${session.shop}/admin/apps/rankinai/app/pricing?plan_id=${planId}`;
       
-      // ✅ CORRECTION: Utiliser appSubscriptionCreate pour TOUS les plans (mensuels ET annuels)
-      // La seule différence est l'interval: EVERY_30_DAYS vs ANNUAL
+      console.log("[PRICING ACTION] Return URL:", returnUrl);
+
+      // ✅ Utiliser appSubscriptionCreate pour TOUS les plans (mensuels ET annuels)
       const response = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
         variables: {
           name: `RankInAI ${plan.name} ${plan.interval === "ANNUAL" ? "Annual" : "Monthly"} Plan`,
@@ -493,18 +500,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log("[PRICING ACTION] Subscription result:", JSON.stringify(result, null, 2));
       
       if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-        return json({ 
-          error: result.data.appSubscriptionCreate.userErrors[0].message 
-        }, { status: 400 });
+        const errorMessage = result.data.appSubscriptionCreate.userErrors[0].message;
+        console.error("[PRICING ACTION] User error:", errorMessage);
+        return json({ error: errorMessage }, { status: 400 });
       }
 
       const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
 
       if (!confirmationUrl) {
-        return json({ error: "Failed to create billing charge" }, { status: 500 });
+        console.error("[PRICING ACTION] No confirmation URL returned");
+        return json({ error: "Failed to create billing charge. Please try again." }, { status: 500 });
       }
 
-      console.log("[PRICING ACTION] Confirmation URL generated:", confirmationUrl);
+      console.log("[PRICING ACTION] ✅ Confirmation URL generated:", confirmationUrl);
 
       return json({ confirmationUrl });
     }
@@ -512,7 +520,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return json({ error: "Invalid action" }, { status: 400 });
 
   } catch (error: any) {
-    console.error("Billing error:", error);
+    console.error("[PRICING ACTION] Billing error:", error);
     return json({ 
       error: error.message || "Failed to process billing request" 
     }, { status: 500 });
@@ -526,6 +534,13 @@ export default function Pricing() {
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
+
+  // Reset loading state when fetcher completes
+  useEffect(() => {
+    if (fetcher.state === "idle" && isLoading) {
+      setIsLoading(null);
+    }
+  }, [fetcher.state, isLoading]);
 
   useEffect(() => {
     if (fetcher.data?.confirmationUrl) {
@@ -550,13 +565,27 @@ export default function Pricing() {
     }
   }, [success, navigate, revalidator]);
 
+  // ✅ FIX POINT 4: Suppression du early return côté client
+  // La validation complète est faite côté serveur
   const handleUpgrade = async (planId: string) => {
     const plan = BILLING_PLANS[planId as keyof typeof BILLING_PLANS];
-    const targetPrismaEnum = getPrismaPlan(planId);
     
-    if (shop.plan === targetPrismaEnum) return;
+    // Vérification basique que le plan existe
+    if (!plan) {
+      console.error("[PRICING UI] Invalid plan:", planId);
+      return;
+    }
+
+    // Ne pas bloquer côté client - laisser le serveur valider
+    // Cela permet les upgrades, downgrades, et changements d'interval
+    console.log("[PRICING UI] Initiating plan change to:", planId);
+    console.log("[PRICING UI] Current state:", {
+      currentPlan: shop.plan,
+      currentInterval: shop.billingInterval,
+      targetPlan: getPrismaPlan(planId),
+      targetInterval: plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY"
+    });
     
-    console.log("[PRICING UI] Initiating upgrade to:", planId);
     setIsLoading(planId);
     
     const formData = new FormData();
@@ -569,6 +598,8 @@ export default function Pricing() {
   const handleCancelSubscription = async (subscriptionId: string) => {
     if (confirm("Are you sure you want to cancel your subscription? You will lose access to premium features.")) {
       console.log("[PRICING UI] Cancelling subscription:", subscriptionId);
+      setIsLoading("cancel");
+      
       const formData = new FormData();
       formData.append("_action", "cancel");
       formData.append("subscriptionId", subscriptionId);
@@ -637,8 +668,12 @@ export default function Pricing() {
                 </p>
               </div>
               {activeSubscriptions.length > 0 && (
-                <button onClick={() => handleCancelSubscription(activeSubscriptions[0].id)} style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.3)", padding: "8px 16px", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>
-                  Cancel Subscription
+                <button 
+                  onClick={() => handleCancelSubscription(activeSubscriptions[0].id)} 
+                  disabled={isLoading === "cancel"}
+                  style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.3)", padding: "8px 16px", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: isLoading === "cancel" ? "wait" : "pointer" }}
+                >
+                  {isLoading === "cancel" ? "Cancelling..." : "Cancel Subscription"}
                 </button>
               )}
             </div>
@@ -650,6 +685,7 @@ export default function Pricing() {
             const planPrismaEnum = getPrismaPlan(plan.id);
             const planInterval = plan.interval === "ANNUAL" ? "ANNUAL" : "MONTHLY";
             const isCurrentPlan = shop.plan === planPrismaEnum && shop.billingInterval === planInterval;
+            const isProcessing = isLoading === plan.id;
             const monthlyPrice = billingPeriod === "annual" && plan.interval === "ANNUAL" ? Math.round(plan.price / 12) : plan.price;
             
             return (
@@ -698,30 +734,43 @@ export default function Pricing() {
                   ))}
                 </ul>
 
-                <button onClick={() => handleUpgrade(plan.id)} disabled={isCurrentPlan || isLoading === plan.id} style={{ width: "100%", padding: "14px 24px", background: isCurrentPlan ? "#e0e0e0" : plan.popular ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" : plan.color, color: isCurrentPlan ? "#9e9e9e" : "white", border: "none", borderRadius: "10px", fontSize: "16px", fontWeight: "600", cursor: isCurrentPlan ? "not-allowed" : "pointer", transition: "all 0.2s ease" }}>
-                  {isLoading === plan.id ? "Processing..." : isCurrentPlan ? "Current Plan" : plan.cta}
+                <button 
+                  onClick={() => handleUpgrade(plan.id)} 
+                  disabled={isCurrentPlan || isProcessing} 
+                  style={{ 
+                    width: "100%", 
+                    padding: "14px 24px", 
+                    background: isCurrentPlan ? "#e0e0e0" : plan.popular ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" : plan.color, 
+                    color: isCurrentPlan ? "#9e9e9e" : "white", 
+                    border: "none", 
+                    borderRadius: "10px", 
+                    fontSize: "16px", 
+                    fontWeight: "600", 
+                    cursor: isCurrentPlan || isProcessing ? "not-allowed" : "pointer", 
+                    transition: "all 0.2s ease",
+                    opacity: isProcessing ? 0.7 : 1
+                  }}
+                >
+                  {isProcessing ? "Processing..." : isCurrentPlan ? "Current Plan" : plan.cta}
                 </button>
               </div>
             );
           })}
         </div>
 
-        <div style={{ background: "linear-gradient(135deg, #1a237e 0%, #311b92 100%)", borderRadius: "16px", padding: "48px", textAlign: "center", color: "white", marginBottom: "48px" }}>
-          <h2 style={{ fontSize: "28px", fontWeight: "700", margin: "0 0 16px 0" }}>Need a Custom Solution?</h2>
-          <p style={{ fontSize: "16px", opacity: 0.95, margin: "0 0 24px 0", maxWidth: "600px", marginLeft: "auto", marginRight: "auto" }}>
-            For large stores with over 10,000 products or specific enterprise needs, we offer custom plans with dedicated support and infrastructure.
-          </p>
-          <a href="mailto:contact@rank-in-ai.com?subject=Enterprise%20Plan%20Inquiry" style={{ display: "inline-block", background: "white", color: "#1a237e", padding: "14px 32px", borderRadius: "8px", fontSize: "16px", fontWeight: "600", textDecoration: "none", transition: "transform 0.2s ease" }}>
-            Contact Enterprise Sales
-          </a>
-        </div>
+        {/* ✅ FIX POINT 1: Section Custom Solution SUPPRIMÉE */}
+        {/* Tous les frais doivent passer par Shopify Billing API */}
 
         {fetcher.data?.error && (
-          <div style={{ position: "fixed", bottom: "24px", right: "24px", background: "#f44336", color: "white", padding: "16px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 1000 }}>❌ {fetcher.data.error}</div>
+          <div style={{ position: "fixed", bottom: "24px", right: "24px", background: "#f44336", color: "white", padding: "16px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 1000, maxWidth: "400px" }}>
+            ❌ {fetcher.data.error}
+          </div>
         )}
         
         {fetcher.data?.success && (
-          <div style={{ position: "fixed", bottom: "24px", right: "24px", background: "#4caf50", color: "white", padding: "16px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 1000 }}>✅ {fetcher.data.message}</div>
+          <div style={{ position: "fixed", bottom: "24px", right: "24px", background: "#4caf50", color: "white", padding: "16px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 1000 }}>
+            ✅ {fetcher.data.message}
+          </div>
         )}
       </div>
     </div>
