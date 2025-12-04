@@ -6,6 +6,7 @@ import { prisma } from "~/db.server";
 import { useState, useEffect } from "react";
 import AppHeader from "~/components/AppHeader";
 
+// ✅ FIX POINT 1: Pricing information updated with clear trial details and charge information
 const BILLING_PLANS = {
   TRIAL: {
     id: "TRIAL",
@@ -14,15 +15,18 @@ const BILLING_PLANS = {
     price: 0,
     interval: "ONE_TIME",
     credits: 25,
+    trialInfo: "One-time • No credit card required", // ✅ Clear trial details
     features: [
-      "25 AI optimization credits",
+      "25 AI optimization credits (one-time)",
+      "No time limit – use at your own pace",
       "ChatGPT & Gemini analysis", 
       "Basic citation reporting",
       "Product sync from Shopify",
       "Email support"
     ],
     limitations: [
-      "Limited to 25 scans total",
+      "Limited to 25 total scans",
+      "Credits do not renew",
       "No automated scanning",
       "No API access"
     ],
@@ -37,8 +41,10 @@ const BILLING_PLANS = {
     price: 29,
     interval: "EVERY_30_DAYS",
     credits: 100,
+    billingInfo: "Billed monthly through Shopify", // ✅ Clear billing details
     features: [
       "100 AI optimization credits/month",
+      "Credits reset monthly",
       "ChatGPT & Gemini analysis",
       "Advanced citation reporting",
       "Competitor tracking",
@@ -61,8 +67,10 @@ const BILLING_PLANS = {
     price: 290,
     interval: "ANNUAL",
     credits: 100,
+    billingInfo: "Billed annually through Shopify", // ✅ Clear billing details
     features: [
       "100 AI optimization credits/month",
+      "Credits reset monthly",
       "ChatGPT & Gemini analysis",
       "Advanced citation reporting",
       "Competitor tracking",
@@ -87,8 +95,10 @@ const BILLING_PLANS = {
     price: 79,
     interval: "EVERY_30_DAYS",
     credits: 300,
+    billingInfo: "Billed monthly through Shopify", // ✅ Clear billing details
     features: [
       "300 AI optimization credits/month",
+      "Credits reset monthly",
       "Everything in Starter, plus:",
       "Automated daily scanning",
       "Bulk optimization",
@@ -111,8 +121,10 @@ const BILLING_PLANS = {
     price: 790,
     interval: "ANNUAL",
     credits: 300,
+    billingInfo: "Billed annually through Shopify", // ✅ Clear billing details
     features: [
       "300 AI optimization credits/month",
+      "Credits reset monthly",
       "Everything in Starter, plus:",
       "Automated daily scanning",
       "Bulk optimization",
@@ -137,8 +149,10 @@ const BILLING_PLANS = {
     price: 199,
     interval: "EVERY_30_DAYS",
     credits: 1000,
+    billingInfo: "Billed monthly through Shopify", // ✅ Clear billing details
     features: [
       "1,000 AI optimization credits/month",
+      "Credits reset monthly",
       "Everything in Growth, plus:",
       "Unlimited API access",
       "Custom AI training for your niche",
@@ -160,8 +174,10 @@ const BILLING_PLANS = {
     price: 1990,
     interval: "ANNUAL",
     credits: 1000,
+    billingInfo: "Billed annually through Shopify", // ✅ Clear billing details
     features: [
       "1,000 AI optimization credits/month",
+      "Credits reset monthly",
       "Everything in Growth, plus:",
       "Unlimited API access",
       "Custom AI training for your niche",
@@ -644,6 +660,11 @@ export default function Pricing() {
             Boost your products' visibility in AI assistants like ChatGPT and Gemini. Get more organic traffic from AI-powered searches.
           </p>
 
+          {/* ✅ FIX POINT 1: All plans billed through Shopify notice */}
+          <p style={{ fontSize: "14px", color: "#6d7175", margin: "0 0 24px 0" }}>
+            All paid plans are billed securely through Shopify. Cancel anytime.
+          </p>
+
           <div style={{ display: "inline-flex", alignItems: "center", gap: "16px", background: "white", padding: "8px", borderRadius: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
             <button onClick={() => setBillingPeriod("monthly")} style={{ padding: "10px 20px", background: billingPeriod === "monthly" ? "#2196f3" : "transparent", color: billingPeriod === "monthly" ? "white" : "#6d7175", border: "none", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer", transition: "all 0.2s ease" }}>
               Monthly Billing
@@ -708,14 +729,27 @@ export default function Pricing() {
                     )}
                   </div>
                   
+                  {/* ✅ FIX POINT 1: Display billing/trial info */}
+                  {'trialInfo' in plan && plan.trialInfo && (
+                    <div style={{ fontSize: "13px", color: "#4caf50", marginTop: "4px", fontWeight: "500" }}>
+                      {plan.trialInfo}
+                    </div>
+                  )}
+                  
+                  {'billingInfo' in plan && plan.billingInfo && (
+                    <div style={{ fontSize: "13px", color: "#6d7175", marginTop: "4px" }}>
+                      {plan.billingInfo}
+                    </div>
+                  )}
+                  
                   {billingPeriod === "annual" && plan.interval === "ANNUAL" && (
                     <>
                       <div style={{ fontSize: "14px", color: "#6d7175", marginTop: "4px" }}>${plan.price} billed annually</div>
-                      {plan.savings && <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>Save ${plan.savings} per year</div>}
+                      {'savings' in plan && plan.savings && <div style={{ fontSize: "14px", color: "#4caf50", marginTop: "4px" }}>Save ${plan.savings} per year</div>}
                     </>
                   )}
                   
-                  <div style={{ fontSize: "16px", color: "#202223", marginTop: "8px", fontWeight: "600" }}>{plan.credits} optimization credits{plan.id !== "TRIAL" && " per month"}</div>
+                  <div style={{ fontSize: "16px", color: "#202223", marginTop: "8px", fontWeight: "600" }}>{plan.credits} optimization credits{plan.id !== "TRIAL" ? " per month" : " total"}</div>
                 </div>
 
                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px 0", borderTop: "1px solid #e0e0e0", paddingTop: "24px" }}>
