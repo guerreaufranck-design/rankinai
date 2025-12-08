@@ -487,7 +487,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
 
       // ✅ FIX POINT 3: Correction du returnUrl - ajout de /app dans le path
-      const returnUrl = `https://${session.shop}/admin/apps/rankinai/app/pricing?plan_id=${planId}`;
+      const returnUrl = `${process.env.SHOPIFY_APP_URL}/app/pricing?plan_id=${planId}`;
       
       console.log("[PRICING ACTION] Return URL:", returnUrl);
 
