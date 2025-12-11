@@ -74,7 +74,7 @@ export default function ProductDetail() {
   
   const handleChatGPTScan = async () => {
     if (shop.credits < 1) {
-      navigate('/app/pricing');
+      navigate('/app/upgrade');
       return;
     }
     
@@ -87,7 +87,7 @@ export default function ProductDetail() {
   
   const handleGeminiScan = async () => {
     if (shop.credits < 1) {
-      navigate('/app/pricing');
+      navigate('/app/upgrade');
       return;
     }
     
@@ -100,7 +100,7 @@ export default function ProductDetail() {
   
   const handleGenerateRecommendations = async () => {
     if (shop.credits < 1) {
-      navigate('/app/pricing');
+      navigate('/app/upgrade');
       return;
     }
     
@@ -140,7 +140,7 @@ export default function ProductDetail() {
               <Banner
                 title="Low credits"
                 tone="warning"
-                action={{ content: "Upgrade plan", onAction: () => navigate('/app/pricing') }}
+                action={{ content: "Upgrade plan", onAction: () => navigate('/app/upgrade') }}
               >
                 <p>You have only {shop.credits} credits remaining.</p>
               </Banner>

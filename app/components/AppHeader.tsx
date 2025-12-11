@@ -209,7 +209,7 @@ export default function AppHeader() {
 
             {!isMobile && (
               <Link
-                to="/app/pricing"
+                to="/app/upgrade"
                 style={{
                   padding: "8px 16px",
                   background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
@@ -275,7 +275,7 @@ export default function AppHeader() {
               
               <div style={{ padding: "12px 16px 8px" }}>
                 <Link
-                  to="/app/pricing"
+                  to="/app/upgrade"
                   onClick={() => setIsMenuOpen(false)}
                   style={{
                     display: "block",

@@ -11,7 +11,7 @@ export function useCredits(initialCredits: number, maxCredits: number) {
       setShowWarning(true);
     } else if (credits === 0) {
       // Redirect to pricing if no credits
-      setTimeout(() => navigate('/app/pricing'), 2000);
+      setTimeout(() => navigate('/app/upgrade'), 2000);
     }
   }, [credits, navigate]);
   

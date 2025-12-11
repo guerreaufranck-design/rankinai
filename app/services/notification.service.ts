@@ -45,7 +45,7 @@ export class NotificationService {
         title: 'Credits Running Low',
         message: `You have only ${shop.credits} credits remaining. Upgrade your plan to continue scanning.`,
         type: 'warning',
-        actionUrl: '/app/pricing',
+        actionUrl: '/app/upgrade',
         actionLabel: 'Upgrade Plan'
       });
     }
@@ -56,7 +56,7 @@ export class NotificationService {
         title: 'No Credits Remaining',
         message: 'You have used all your credits. Upgrade now to continue using RankInAI.',
         type: 'error',
-        actionUrl: '/app/pricing',
+        actionUrl: '/app/upgrade',
         actionLabel: 'Upgrade Now'
       });
     }

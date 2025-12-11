@@ -51,11 +51,11 @@ export function AppNavigation() {
             onClick: () => navigate('/app/assistant')
           },
           {
-            url: '/app/pricing',
+            url: '/app/upgrade',
             label: 'Pricing',
             icon: CashDollarMajor,
-            selected: location.pathname === '/app/pricing',
-            onClick: () => navigate('/app/pricing')
+            selected: location.pathname === '/app/upgrade',
+            onClick: () => navigate('/app/upgrade')
           },
           {
             url: '/app/settings',
