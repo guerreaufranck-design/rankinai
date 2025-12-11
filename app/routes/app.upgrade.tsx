@@ -7,8 +7,14 @@ import { authenticate } from "~/shopify.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
-  // URL vers la page de pricing Shopify (Managed Pricing)
-  const pricingUrl = `https://${session.shop}/admin/charges/rankinai/pricing_plans`;
+  // Extraire le store handle (sans .myshopify.com)
+  const storeHandle = session.shop.replace('.myshopify.com', '');
+  
+  // App handle depuis shopify.app.toml
+  const appHandle = "rankinai";
+  
+  // URL correcte vers la page de pricing Shopify (Managed Pricing)
+  const pricingUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
   
   return json({ pricingUrl });
 };
@@ -17,6 +23,7 @@ export default function Upgrade() {
   const { pricingUrl } = useLoaderData<typeof loader>();
   
   useEffect(() => {
+    // Rediriger la fenêtre parent (important pour apps embedded)
     if (window.top) {
       window.top.location.href = pricingUrl;
     } else {
