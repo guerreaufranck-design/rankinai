@@ -43,9 +43,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             activeSubscriptions {
               name
               status
-              plan {
-                handle
-              }
             }
           }
         }`
