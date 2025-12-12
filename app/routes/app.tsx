@@ -33,20 +33,23 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
     const { admin, session } = await authenticate.admin(request);
     
-    // 1. Query Shopify pour le plan ACTUEL
+    // 1. Query Shopify pour le plan ACTUEL (avec handle)
     let activeSubscriptions: any[] = [];
     
     try {
-      const response = await admin.graphql(`
-        query {
+      const response = await admin.graphql(
+        `query {
           currentAppInstallation {
             activeSubscriptions {
               name
               status
+              plan {
+                handle
+              }
             }
           }
-        }
-      `);
+        }`
+      );
       
       const result = await response.json();
       
@@ -85,13 +88,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     
     if (activeSubscriptions.length > 0) {
       const activePlan = activeSubscriptions[0];
+      const planHandle = activePlan.plan?.handle || "";
       const planName = activePlan.name || "";
       
-      // Chercher par nom
-      mappedPlan = getPlanFromName(planName);
+      // Chercher par handle d'abord, puis par nom en fallback
+      if (planHandle && PLAN_BY_HANDLE[planHandle]) {
+        mappedPlan = PLAN_BY_HANDLE[planHandle];
+        console.log("[APP.TSX] Matched by handle:", planHandle);
+      } else {
+        mappedPlan = getPlanFromName(planName);
+        console.log("[APP.TSX] Matched by name:", planName);
+      }
       
       console.log("[APP.TSX] Plan mapping:", { 
         shopifyPlanName: planName,
+        shopifyPlanHandle: planHandle,
         mappedTo: mappedPlan 
       });
     } else {
@@ -146,7 +157,7 @@ export function ErrorBoundary() {
   return (
     <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
       <h2>Une erreur est survenue</h2>
-      <p>L'application a rencontré un problème temporaire.</p>
+      <p>L application a rencontré un problème temporaire.</p>
       <button 
         onClick={() => window.location.reload()} 
         style={{ 
@@ -159,7 +170,7 @@ export function ErrorBoundary() {
           cursor: "pointer"
         }}
       >
-        Rafraîchir la page
+        Rafraichir la page
       </button>
     </div>
   );
