@@ -85,21 +85,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     
     if (activeSubscriptions.length > 0) {
       const activePlan = activeSubscriptions[0];
-      const planHandle = activePlan.plan?.handle || "";
       const planName = activePlan.name || "";
       
-      // Chercher par handle d'abord, puis par nom en fallback
-      if (planHandle && PLAN_BY_HANDLE[planHandle]) {
-        mappedPlan = PLAN_BY_HANDLE[planHandle];
-        console.log("[APP.TSX] Matched by handle:", planHandle);
-      } else {
-        mappedPlan = getPlanFromName(planName);
-        console.log("[APP.TSX] Matched by name:", planName);
-      }
+      mappedPlan = getPlanFromName(planName);
+      console.log("[APP.TSX] Matched by name:", planName);
       
       console.log("[APP.TSX] Plan mapping:", { 
         shopifyPlanName: planName,
-        shopifyPlanHandle: planHandle,
         mappedTo: mappedPlan 
       });
     } else {
