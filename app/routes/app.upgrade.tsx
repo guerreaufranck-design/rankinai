@@ -1,25 +1,33 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect } from "~/utils/response";
+import { useLoaderData } from "react-router";
+import { useEffect } from "react";
 import { authenticate } from "~/shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   
+  const storeHandle = session.shop.replace('.myshopify.com', '');
   const appHandle = "rankinai";
   
-  return redirect("shopify://admin/charges/" + appHandle + "/pricing_plans");
+  return { 
+    pricingUrl: `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`
+  };
 };
 
 export default function Upgrade() {
+  const { pricingUrl } = useLoaderData<typeof loader>();
+  
+  useEffect(() => {
+    if (window.top) {
+      window.top.location.href = pricingUrl;
+    } else {
+      window.location.href = pricingUrl;
+    }
+  }, [pricingUrl]);
+  
   return (
-    <div style={{ 
-      padding: "60px 40px", 
-      textAlign: "center",
-      fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
-    }}>
-      <p style={{ fontSize: "16px", color: "#6d7175" }}>
-        Redirecting to pricing plans...
-      </p>
+    <div style={{ padding: "40px", textAlign: "center" }}>
+      <p>Redirecting to pricing plans...</p>
     </div>
   );
 }
