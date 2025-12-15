@@ -7,7 +7,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
   const storeHandle = session.shop.replace('.myshopify.com', '');
-  const appHandle = "rankinai";
+  const appHandle = "rankinai-app";
   
   return { 
     pricingUrl: `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`
