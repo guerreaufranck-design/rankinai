@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { json } from "~/utils/response";
-import { useLoaderData, Link } from "react-router";
+import { useLoaderData, Link, useOutletContext } from "react-router";
 import { authenticate } from "~/shopify.server";
 import { prisma } from "~/db.server";
 import AppHeader from "~/components/AppHeader";
@@ -69,7 +69,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export default function Index() {
   const { shop, stats } = useLoaderData<typeof loader>();
-  const creditPercentage = (shop.credits / shop.maxCredits) * 100;
+  const { credits, maxCredits } = useOutletContext<{ credits: number; maxCredits: number }>();
+  const creditPercentage = (credits / maxCredits) * 100;
 
   return (
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "#f6f6f7", minHeight: "100vh" }}>
@@ -227,7 +228,7 @@ export default function Index() {
                 fontSize: '12px',
                 fontWeight: '600'
               }}>
-                {shop.credits}/{shop.maxCredits}
+                {credits}/{maxCredits}
               </span>
             </div>
             <div style={{
