@@ -204,6 +204,40 @@ export default function Index() {
           </div>
         )}
 
+        {/* Feedback Card */}
+        <div style={{
+          padding: "14px 20px",
+          background: "white",
+          borderRadius: "10px",
+          marginBottom: "20px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          border: "1px solid #e2e8f0"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontSize: "20px" }}>💡</span>
+            <span style={{ fontSize: "14px", color: "#475569" }}>Help us improve RankinAI! Your feedback shapes our next features.</span>
+          </div>
+          <a
+            href="https://apps.shopify.com/rankinai#modal-show=WriteReviewModal"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "8px 16px",
+              background: "#f1f5f9",
+              color: "#6366f1",
+              border: "none",
+              borderRadius: "6px",
+              fontWeight: "600",
+              fontSize: "13px",
+              textDecoration: "none"
+            }}
+          >
+            Share your thoughts →
+          </a>
+        </div>
+
         {/* STATS CARDS */}
         <div style={{ 
           display: 'grid', 
