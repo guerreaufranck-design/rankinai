@@ -1,3 +1,5 @@
+import { Link } from "react-router";
+
 interface UpgradeBlockerProps {
   feature: "optimization" | "analyze" | "content";
 }
@@ -83,9 +85,10 @@ export function UpgradeBlocker({ feature }: UpgradeBlockerProps) {
           💡 Pro tip: AI algorithms change frequently. Regular monthly scans and optimizations ensure you stay ahead.
         </div>
       </div>
-      <button 
-        onClick={() => window.location.href = "/app/upgrade"}
+      <Link 
+        to="/app/upgrade"
         style={{ 
+          display: "inline-block",
           background: "#f59e0b", 
           border: "none",
           color: "white",
@@ -94,10 +97,11 @@ export function UpgradeBlocker({ feature }: UpgradeBlockerProps) {
           borderRadius: "8px",
           cursor: "pointer",
           fontWeight: "600",
+          textDecoration: "none",
         }}
       >
         ⬆️ Upgrade Now
-      </button>
+      </Link>
       <p style={{ 
         fontSize: "11px", 
         color: "#a16207", 
