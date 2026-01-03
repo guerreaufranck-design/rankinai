@@ -7,6 +7,7 @@ import { useState } from "react";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import AppHeader from "~/components/AppHeader";
+import { UpgradeBlocker } from "~/components/UpgradeBlocker";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -794,6 +795,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return json({
     shop: {
       shopName: shop.shopName,
+      plan: shop.plan,
       credits: shop.credits,
       maxCredits: shop.maxCredits,
       shopifyDomain: shop.shopifyDomain,

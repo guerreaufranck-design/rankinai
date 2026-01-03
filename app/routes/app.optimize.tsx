@@ -6,6 +6,7 @@ import { prisma } from "~/db.server";
 import { useState, useMemo } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import AppHeader from "~/components/AppHeader";
+import { UpgradeBlocker } from "~/components/UpgradeBlocker";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -165,6 +166,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({
       shop: {
         shopName: safeGet(shop.shopName, ""),
+        plan: shop.plan,
         credits: safeGet(shop.credits, 0),
         maxCredits: safeGet(shop.maxCredits, 25),
       },
@@ -987,6 +989,10 @@ export default function Optimize() {
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "#f6f6f7", minHeight: "100vh" }}>
       <AppHeader />
 
+      {shop.plan === "TRIAL" ? (
+        <UpgradeBlocker feature="optimization" />
+      ) : (
+      <>
       {selectedProduct && (
         <div
           style={{
@@ -1619,6 +1625,8 @@ export default function Optimize() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
