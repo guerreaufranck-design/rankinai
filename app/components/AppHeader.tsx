@@ -6,15 +6,15 @@ interface OutletContext {
   maxCredits: number;
 }
 
+const APP_HANDLE = "rankinai-ai-seo-9x7k";
+
 export default function AppHeader() {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   
-  // 🆕 Lire les crédits depuis le context
   const { credits = 0, maxCredits = 25 } = useOutletContext<OutletContext>() || {};
 
-  // Détection de la largeur d'écran
   useEffect(() => {
     const checkScreenSize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -28,7 +28,6 @@ export default function AppHeader() {
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
-  // Fermer le menu quand on change de page
   useEffect(() => {
     setIsMenuOpen(false);
   }, [location.pathname]);
@@ -47,6 +46,16 @@ export default function AppHeader() {
       return location.pathname === path;
     }
     return location.pathname.startsWith(path);
+  };
+
+  const handleUpgradeClick = () => {
+    const shopDomain = window.location.hostname.includes('myshopify') 
+      ? window.location.hostname.replace('.myshopify.com', '')
+      : new URLSearchParams(window.location.search).get('shop')?.replace('.myshopify.com', '') || '';
+    
+    if (shopDomain) {
+      window.open(`https://admin.shopify.com/store/${shopDomain}/charges/${APP_HANDLE}/pricing_plans`, "_top");
+    }
   };
 
   return (
@@ -208,8 +217,8 @@ export default function AppHeader() {
             </div>
 
             {!isMobile && (
-              <Link
-                to="/app/upgrade"
+              <button
+                onClick={handleUpgradeClick}
                 style={{
                   padding: "8px 16px",
                   background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
@@ -220,8 +229,6 @@ export default function AppHeader() {
                   fontWeight: "600",
                   cursor: "pointer",
                   transition: "all 0.2s ease",
-                  textDecoration: "none",
-                  display: "inline-block",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "translateY(-1px)";
@@ -233,7 +240,7 @@ export default function AppHeader() {
                 }}
               >
                 Upgrade Plan
-              </Link>
+              </button>
             )}
           </div>
         </div>
@@ -274,9 +281,11 @@ export default function AppHeader() {
               ))}
               
               <div style={{ padding: "12px 16px 8px" }}>
-                <Link
-                  to="/app/upgrade"
-                  onClick={() => setIsMenuOpen(false)}
+                <button
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    handleUpgradeClick();
+                  }}
                   style={{
                     display: "block",
                     width: "100%",
@@ -288,12 +297,11 @@ export default function AppHeader() {
                     fontSize: "15px",
                     fontWeight: "600",
                     cursor: "pointer",
-                    textDecoration: "none",
                     textAlign: "center",
                   }}
                 >
                   Upgrade Plan
-                </Link>
+                </button>
               </div>
             </nav>
           </div>
