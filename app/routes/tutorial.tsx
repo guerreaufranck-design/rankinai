@@ -78,7 +78,7 @@ export default function Tutorial() {
                 textDecoration: "none",
               }}
             >
-              Install RankInAI →
+              Install RankInAI
             </a>
           </div>
         </nav>
