@@ -14,7 +14,7 @@ function getPlanFromName(planName: string): { plan: string; credits: number } {
   if (name.includes("growth")) return { plan: "GROWTH", credits: 300 };
   if (name.includes("starter")) return { plan: "STARTER", credits: 100 };
   if (name.includes("lite") || name.includes("basic")) return { plan: "LITE", credits: 30 };
-  return { plan: "LITE", credits: 30 }; // Default au plan le moins cher
+  return { plan: "LITE", credits: 30 };
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -26,45 +26,54 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   try {
-    const { billing, session } = await authenticate.admin(request);
+    const { admin, session } = await authenticate.admin(request);
     
     const storeHandle = session.shop.replace('.myshopify.com', '');
     const pricingUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${APP_HANDLE}/pricing_plans`;
     
-    // 1. Vérifier si subscription active via billing.check()
+    // Vérifier via GraphQL (plus fiable que billing.check avec Managed Pricing)
     let hasActivePayment = false;
     let appSubscriptions: any[] = [];
     
     try {
-      const billingCheck = await billing.check({
-        plans: ["Lite", "Starter", "Growth", "Pro"],
-        isTest: true,
-      });
-      hasActivePayment = billingCheck.hasActivePayment;
-      appSubscriptions = billingCheck.appSubscriptions || [];
+      const response = await admin.graphql(`
+        query {
+          currentAppInstallation {
+            activeSubscriptions {
+              name
+              status
+              test
+            }
+          }
+        }
+      `);
+      const result = await response.json();
+      appSubscriptions = result.data?.currentAppInstallation?.activeSubscriptions || [];
+      hasActivePayment = appSubscriptions.length > 0;
       
-      console.log("[APP.TSX] billing.check():", { hasActivePayment, plans: appSubscriptions.map((s: any) => s.name) });
-    } catch (billingError) {
-      if (billingError instanceof Response) {
-        throw billingError;
+      console.log("[APP.TSX] GraphQL activeSubscriptions:", JSON.stringify(appSubscriptions));
+      console.log("[APP.TSX] hasActivePayment:", hasActivePayment);
+    } catch (gqlError) {
+      console.error("[APP.TSX] GraphQL error:", gqlError);
+      if (gqlError instanceof Response) {
+        throw gqlError;
       }
-      console.error("[APP.TSX] billing.check() failed:", billingError);
     }
     
-    // 2. Si PAS de subscription → REDIRECT via exit-iframe
+    // Si PAS de subscription → REDIRECT via exit-iframe
     if (!hasActivePayment) {
       console.log("[APP.TSX] No active payment - redirecting via exit-iframe to:", pricingUrl);
       const exitIframeUrl = `/auth/exit-iframe?exitIframe=${encodeURIComponent(pricingUrl)}`;
       throw redirect(exitIframeUrl);
     }
     
-    // 3. Déterminer le plan depuis Shopify (source de vérité)
+    // Déterminer le plan depuis Shopify (source de vérité)
     const activePlanName = appSubscriptions[0]?.name || "Lite";
     const mappedPlan = getPlanFromName(activePlanName);
     
     console.log("[APP.TSX] Active plan:", { shopifyName: activePlanName, mapped: mappedPlan });
     
-    // 4. Charger ou créer le shop
+    // Charger ou créer le shop
     let shop = await prisma.shop.findUnique({
       where: { shopifyDomain: session.shop },
     });
@@ -82,7 +91,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       });
       console.log("[APP.TSX] Shop créé avec plan:", mappedPlan.plan);
     } else if (shop.plan !== mappedPlan.plan) {
-      // Sync plan si différent
       console.log("[APP.TSX] Syncing plan:", { from: shop.plan, to: mappedPlan.plan });
       
       shop = await prisma.shop.update({
