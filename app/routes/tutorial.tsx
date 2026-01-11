@@ -64,7 +64,7 @@ export default function Tutorial() {
           <div style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", borderRadius: "16px", padding: "24px", marginTop: "20px", color: "white", textAlign: "center" }}>
             <p style={{ margin: "0 0 16px", fontSize: "15px", fontWeight: "500" }}>Ready to boost your AI visibility?</p>
             
-              href="https://apps.shopify.com/rankinai-ai-seo-9x7k"
+              <a href="https://apps.shopify.com/rankinai-ai-seo-9x7k"
               target="_blank"
               rel="noopener noreferrer"
               style={{
