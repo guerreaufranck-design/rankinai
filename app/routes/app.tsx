@@ -13,7 +13,8 @@ function getPlanFromName(planName: string): { plan: string; credits: number } {
   if (name.includes("pro")) return { plan: "PRO", credits: 1000 };
   if (name.includes("growth")) return { plan: "GROWTH", credits: 300 };
   if (name.includes("starter")) return { plan: "STARTER", credits: 100 };
-  return { plan: "STARTER", credits: 100 };
+  if (name.includes("lite") || name.includes("basic")) return { plan: "LITE", credits: 30 };
+  return { plan: "LITE", credits: 30 }; // Default au plan le moins cher
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -21,7 +22,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   // SKIP authentication pour webhooks
   if (url.pathname.startsWith("/webhooks")) {
-    return { apiKey: process.env.SHOPIFY_API_KEY || "", credits: 0, maxCredits: 100 };
+    return { apiKey: process.env.SHOPIFY_API_KEY || "", credits: 0, maxCredits: 30 };
   }
 
   try {
@@ -36,7 +37,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     
     try {
       const billingCheck = await billing.check({
-        plans: ["Starter", "Growth", "Pro"],
+        plans: ["Lite", "Starter", "Growth", "Pro"],
         isTest: true,
       });
       hasActivePayment = billingCheck.hasActivePayment;
@@ -58,7 +59,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
     
     // 3. Déterminer le plan depuis Shopify (source de vérité)
-    const activePlanName = appSubscriptions[0]?.name || "Starter";
+    const activePlanName = appSubscriptions[0]?.name || "Lite";
     const mappedPlan = getPlanFromName(activePlanName);
     
     console.log("[APP.TSX] Active plan:", { shopifyName: activePlanName, mapped: mappedPlan });
@@ -98,7 +99,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return { 
       apiKey: process.env.SHOPIFY_API_KEY || "",
       credits: shop.credits ?? 0,
-      maxCredits: shop.maxCredits ?? 100
+      maxCredits: shop.maxCredits ?? 30
     };
   } catch (error) {
     if (error instanceof Response) {

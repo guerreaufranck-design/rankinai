@@ -30,7 +30,7 @@ model Shop {
   shopifyDomain  String    @unique
   shopName       String
   accessToken    String
-  plan           Plan      @default(TRIAL)
+  plan           Plan      @default(LITE)
   billingInterval String   @default("MONTHLY") // "MONTHLY" or "ANNUAL"
   credits        Int       @default(25)
   maxCredits     Int       @default(25)
@@ -244,7 +244,7 @@ model BlogPost {
 }
 
 enum Plan {
-  TRIAL
+  LITE
   STARTER
   GROWTH
   PRO
