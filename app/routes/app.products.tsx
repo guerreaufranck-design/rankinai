@@ -950,7 +950,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
       fullResponse = completion.choices[0]?.message?.content || "";
     } else if (platform === "GEMINI") {
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       const result = await model.generateContent(smartPrompt);
       fullResponse = result.response.text();
     }

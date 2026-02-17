@@ -4,7 +4,7 @@ import { prisma } from "~/db.server";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export class GeminiService {
-  private static model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  private static model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
   
   /**
    * Test if a product is cited by Gemini when asked relevant questions

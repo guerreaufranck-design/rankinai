@@ -505,7 +505,7 @@ Provide comprehensive suggestions in JSON format (respond ONLY with valid JSON, 
         const geminiResponse = await callGeminiWithRetry(
           prompt,
           {
-            model: "gemini-2.0-flash-exp",
+            model: "gemini-2.5-flash",
             generationConfig: {
               temperature: 0.7,
               topK: 40,
@@ -757,7 +757,7 @@ Return ONLY valid JSON (no markdown, no code blocks):
             const blogResponse = await callGeminiWithRetry(
               blogPrompt,
               {
-                model: "gemini-2.0-flash-exp",
+                model: "gemini-2.5-flash",
                 generationConfig: {
                   temperature: 0.8,
                   topK: 40,

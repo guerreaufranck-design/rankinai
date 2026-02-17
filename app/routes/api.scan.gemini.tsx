@@ -33,7 +33,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     const startTime = Date.now();
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const result = await model.generateContent(`Tell me about ${product.title}`);
     const fullResponse = result.response.text();
     const scanDuration = Date.now() - startTime;
